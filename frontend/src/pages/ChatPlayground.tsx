@@ -426,6 +426,19 @@ curl -X POST ${window.location.origin}/v1/messages \\
           .chat-message-row { max-width: 96%; }
           .chat-messages { padding: 16px 10px; }
         }
+        /* 375px：3 个动作按钮（清空对话/导出 Markdown/导出 JSON）在 313px 容器内
+           因文字不可换行而溢出（E2E 实测 scrollWidth 349 > clientWidth 313）。
+           允许换行 + 收缩 padding，按钮改为可折行文本。 */
+        @media (max-width: 480px) {
+          .chat-control-actions { flex-wrap: wrap; gap: 6px; }
+          .chat-control-actions button {
+            flex: 1 1 100%;
+            min-width: 0;
+            padding-left: 8px;
+            padding-right: 8px;
+            white-space: normal;
+          }
+        }
       `}</style>
     </div>
   );

@@ -432,19 +432,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
           align-items: center;
           gap: 8px;
           font-size: 13px;
+          /* 窄屏（375px）防重叠：flex 子项默认可收缩，但需 min-width:0 才允许
+             文本真正 ellipsis；否则长中文标题（layout.crumb）会把 root 压成竖排
+             并与相邻文字叠在一起（E2E 375 截图实测）。root/sep 不收缩保完整。 */
+          min-width: 0;
         }
 
         .breadcrumb-root {
           color: var(--text-muted);
+          flex: none;
+          white-space: nowrap;
         }
 
         .breadcrumb-sep {
           color: var(--border-strong);
+          flex: none;
         }
 
         .breadcrumb-current {
           color: var(--text-primary);
           font-weight: 600;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .topbar-actions {
@@ -591,6 +602,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           .main-content { padding: 12px; scroll-margin-top: 50px; }
           .layout-topbar { height: 50px; }
           .topbar-breadcrumb { font-size: 12px; }
+          /* 375px：topbar 左侧为菜单按钮（56px 内边距）、右侧动作区，中间 breadcrumb
+             可用宽度极小。收紧间距并让 crumb 截断优先于动作区被挤出。 */
+          .layout-topbar { gap: 8px; }
+          .topbar-actions { gap: 8px; flex: none; }
+          .breadcrumb-current { max-width: 42vw; }
         }
       `}</style>
     </div>
