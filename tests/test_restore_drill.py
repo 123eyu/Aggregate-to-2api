@@ -10,7 +10,6 @@ from __future__ import annotations
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import textwrap
 from pathlib import Path
 
@@ -89,8 +88,6 @@ def _run(script_args: list[str], cwd: Path) -> subprocess.CompletedProcess:
 
 def test_parse_litestream_paths(litestream_env: dict) -> None:
     """_litestream_db_paths 能解析 yml 中 dbs[].path。"""
-    from scripts.restore_drill import _litestream_db_paths
-
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("rd", SCRIPT)

@@ -6,13 +6,13 @@
 
 from __future__ import annotations
 
-import functools
 import http.server
 import importlib.util
 import socket
 import subprocess
 import sys
 import threading
+import types
 from pathlib import Path
 
 import pytest
@@ -20,7 +20,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "uptime_probe.py"
 
 
-def _load_probe() -> "ModuleType":
+def _load_probe() -> types.ModuleType:
     spec = importlib.util.spec_from_file_location("uptime_probe_mod", SCRIPT)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)

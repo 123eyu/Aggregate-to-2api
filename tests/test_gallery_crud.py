@@ -229,18 +229,15 @@ async def test_gallery_whitelist_includes_all_visible_terminal_states(seeded_gdb
 @pytest.mark.asyncio
 async def test_gallery_whitelist_excludes_non_terminal(tmp_db):
     """v23 N7 P2-3：非白名单状态（pending/processing/queued）不出现在默认画廊。"""
-    from api.db import DB
-
     # 用 seeded_gdb 同款 seed，但直接插 pending/processing 有图行
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
-    base = tmp_db.path if hasattr(tmp_db, "path") else None
     for sid, st in (("pend-1", "pending"), ("proc-1", "processing"), ("queued-1", "queued")):
         await tmp_db._enqueue_write(
             "INSERT INTO requests (id, prompt, status, image_url, image_mime, created_at, finished_at, duration_sec, model)"
             " VALUES (?,?,?,?,?,?,?,0,'imagefree/default')",
             (sid, f"prompt-{sid}", st, "mock://img.png", "image/png",
-             datetime.now(timezone.utc).timestamp(), datetime.now(timezone.utc).timestamp()),
+             datetime.now(UTC).timestamp(), datetime.now(UTC).timestamp()),
         )
         await tmp_db.flush()
     items, total = await tmp_db.gallery_list(page=1, page_size=50)

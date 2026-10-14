@@ -38,22 +38,45 @@ class TestHttpPoolConfig:
             f"实际 {cfg.IF_UPSTREAM_MAX_INFLIGHT} != 自适应 {ADAPTIVE_UPSTREAM_INFLIGHT}"
         )
 
-    def test_env_overrides(self, monkeypatch):
-        """环境变量能覆盖默认值。"""
-        monkeypatch.setenv("IF_HTTP_MAX_CONNECTIONS", "50")
-        monkeypatch.setenv("IF_HTTP_KEEPALIVE", "10")
-        monkeypatch.setenv("IF_UPSTREAM_MAX_INFLIGHT", "5")
+    def test_env_overrides(self):
+        """环境变量能覆盖默认值。
 
-        # 重新加载 config 模块以让 os.getenv 重新执行
-        import importlib
+        v22 A12 拆包后改口径：模块级常量（`api.config.IF_HTTP_MAX_CONNECTIONS` 等）
+        由 `api/config/constants.py` 在 **import 期**从 settings 单例取一次值绑定
+        （快照语义，见该模块 docstring）。`importlib.reload(api.config)` **不会**
+        重新执行已导入的子模块 `constants`，故 env 变更在进程内不再反映到这些常量上
+        —— 旧版把它们内联在 `__init__.py`，reload 恰好能刷新，属偶然而非契约。
 
-        import api.config as cfg
+        生产的真实路径是「env 在 import 前设定」→ 快照即正确值。因此这里用
+        **子进程**验证该路径（与生产一致），而非依赖 in-process reload。
+        """
+        import os
+        import subprocess
 
-        importlib.reload(cfg)
-
-        assert cfg.IF_HTTP_MAX_CONNECTIONS == 50
-        assert cfg.IF_HTTP_KEEPALIVE == 10
-        assert cfg.IF_UPSTREAM_MAX_INFLIGHT == 5
+        env = dict(os.environ)
+        env.update(
+            {
+                "IF_HTTP_MAX_CONNECTIONS": "50",
+                "IF_HTTP_KEEPALIVE": "10",
+                "IF_UPSTREAM_MAX_INFLIGHT": "5",
+            }
+        )
+        code = (
+            "import api.config as c;print(c.IF_HTTP_MAX_CONNECTIONS, c.IF_HTTP_KEEPALIVE, c.IF_UPSTREAM_MAX_INFLIGHT)"
+        )
+        r = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            encoding="utf-8",
+            errors="replace",
+        )
+        assert r.returncode == 0, f"子进程导入失败：{r.stderr[-500:]}"
+        got = r.stdout.strip().split()
+        assert got == ["50", "10", "5"], f"env 未覆盖默认值，实际 {got}"
 
 
 class TestTurnstileClientPoolConfig:

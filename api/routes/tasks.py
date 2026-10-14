@@ -64,8 +64,8 @@ async def cancel_task(request: Request, task_id: str) -> dict[str, Any]:
       已实现；若需审计 IP 需另加 cancel 调用日志字段，v23 未做（见 review-v23 P2-4）。
     """
     from .. import config as _cfg
-    from ..meta import engine as _engine
     from ..auth import guard_chat_request
+    from ..meta import engine as _engine
 
     if not _cfg.IF_TASK_CANCEL_ENABLED:
         raise AppError(ErrorCodes.FORBIDDEN, "任务取消功能未启用（IF_TASK_CANCEL_ENABLED=0）", 403)

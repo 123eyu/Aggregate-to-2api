@@ -25,12 +25,12 @@ class _FakeReg:
 
 @pytest.fixture
 def pool(tmp_path):
-    from api.account_pool import AccountPool
-
     # v20.3.11 隔离修复：tmp_path 在 pytest-asyncio session loop 下可能跨测试复用
     #（前面测试的 nanobanana 残留 → dashboard_counts 污染）。用唯一文件名保证
     # 每测试独立 DB 文件（即使临时目录复用也互不干扰）。
     import uuid
+
+    from api.account_pool import AccountPool
 
     p = AccountPool(str(tmp_path / f"acc-{uuid.uuid4().hex}.db"))
     yield p

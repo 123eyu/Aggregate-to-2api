@@ -26,7 +26,6 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
 
 
 def _latest_backup(backup_dir: str, db_name: str = "imagefree") -> str | None:
@@ -143,6 +142,13 @@ def main() -> int:
     ap.add_argument("--litestream-config", default="deploy/litestream.yml", help="litestream 配置（含 dbs[].path）")
     ap.add_argument("--litestream-cmd", default="litestream", help="litestream 命令（测试可注入 mock）")
     args = ap.parse_args()
+
+    # Windows GBK 终端无法打印（）等非 ASCII —— 强制 UTF-8 输出避免成功路径编码崩溃
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:
+        pass
 
     if args.from_litestream:
         failed = drill_from_litestream(args.litestream_config, args.litestream_cmd)

@@ -300,15 +300,12 @@ async def test_endpoint_error_item_still_200(health_app, monkeypatch):
 
 
 # ── v22.1.3: email_pool import 阻塞限时降级 ───────────────────
-import asyncio
-
-
 async def test_collect_email_pool_import_timeout_degrades():
     """import 阻塞（域名探测慢）→ 8s 内返回错误项而非无限等待（E2E 契约 16c/16d 修复）。"""
-    import api.health_report as hr
-
     # 模拟 import 卡死（同步阻塞线程内，验证 wait_for 超时放弃）
     import time as _time
+
+    import api.health_report as hr
 
     def _fake_slow_import():
         _time.sleep(30)

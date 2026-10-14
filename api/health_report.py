@@ -83,7 +83,7 @@ async def _collect_email_pool() -> dict[str, Any]:
             timeout=_EMAIL_POOL_IMPORT_TIMEOUT,
         )
         return await email_pool.stats()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("health-report 采集 [email_pool] import 超时（>%ss，源域名探测慢）", _EMAIL_POOL_IMPORT_TIMEOUT)
         return {"error": f"email_pool 源初始化超时（域名探测 >{_EMAIL_POOL_IMPORT_TIMEOUT}s）"}
     except Exception as e:  # noqa: BLE001

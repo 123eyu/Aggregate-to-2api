@@ -68,7 +68,12 @@ class TestHandshake:
 
 class TestToolsList:
     def test_tools_list_whitelist(self, mcp_client: TestClient):
-        """v12.0.0 工具白名单 + v16 P0-1 task_status：5 原工具 + 异步任务状态轮询。"""
+        """工具白名单：v12 5 原工具 + v16 P0-1 task_status + v18 P1-3 渐进暴露 2 工具。
+
+        注：v18 P1-3 新增 retrieve_tools/describe_tool（`api/mcp/tools.py`，intent=read、
+        expose=True）后本断言未同步，长期红而未察（本仓 pytest 失败详情被 conftest 的
+        `os._exit` 截断，只见 `F` 不见用例名）。此处补齐白名单。
+        """
         resp = mcp_client.post("/v1/mcp", json=_rpc("tools/list"))
         tools = resp.json()["result"]["tools"]
         names = {t["name"] for t in tools}
@@ -79,6 +84,8 @@ class TestToolsList:
             "dag_status",
             "generate_image",
             "task_status",
+            "retrieve_tools",  # v18 P1-3 渐进暴露（工具检索）
+            "describe_tool",  # v18 P1-3 渐进暴露（工具详情）
         }
         for t in tools:
             assert "inputSchema" in t and t["inputSchema"]["type"] == "object"
@@ -86,6 +93,9 @@ class TestToolsList:
         assert by_name["skills_list"]["annotations"]["readOnlyHint"] is True
         assert by_name["generate_image"]["annotations"]["readOnlyHint"] is False
         assert by_name["task_status"]["annotations"]["readOnlyHint"] is True
+        # 渐进暴露的两个工具均为只读
+        assert by_name["retrieve_tools"]["annotations"]["readOnlyHint"] is True
+        assert by_name["describe_tool"]["annotations"]["readOnlyHint"] is True
 
 
 class TestToolsCall:

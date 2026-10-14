@@ -44,6 +44,22 @@ export default defineConfig({
     // api.ts / useApi.ts / Feedback.tsx 等被测试模块依赖 CSS 或 window 全局，
     // 仅跑纯逻辑与 hook 测试；CSS 模块由 jsdom 忽略。
     css: false,
+    // isolate=false：本项目位于非 ASCII 路径（Desktop/2api目录/...）时，
+    // vitest 4 的隔离 worker 启动会在 60s 后超时
+    // （`[vitest-pool-runner]: Timeout waiting for worker to respond`，
+    //  URL 中 `2api目录` 被编码为 2api%E7%9B%AE%E5%BD%95），28 个 worker 全挂、0 测试执行。
+    // 测试间通过 src/test/setup.ts 的 beforeEach 清理，不依赖 isolate。
+    // （landing/vitest.config.js 已用同一方案）
+    isolate: false,
+    // forks（独立子进程）：每个测试进程有独立堆，不易受项目全局
+    // NODE_OPTIONS=--max-old-space-size=512 挤压而 OOM。
+    // 注意：vitest 4 已移除 `test.poolOptions`（实测跑时打 DEPRECATED 警告并被忽略），
+    // 不要再写 poolOptions.forks.execArgv —— 无效配置会让人误以为内存已调大。
+    pool: 'forks',
+    // setup/import 变慢（实测 setup 累计 199s、environment 1161s），5s 默认超时不够 →
+    // 放宽到 20000ms（与此前 `--testTimeout=20000` 的手工口径一致）。
+    testTimeout: 20000,
+    hookTimeout: 20000,
     coverage: {
       // 仅度量高价值核心模块（任务要求 ≥90%）；不强制全局阈值以免阻塞 CI。
       include: ['src/api.ts', 'src/components/Feedback.tsx', 'src/hooks/useApi.ts'],
