@@ -256,6 +256,20 @@ pytest tests/integration/ -q
 pytest -m slow -q
 ```
 
+> **解释器（Windows）**：`python` / `python3` 常不在 PATH，请用 `./.venv/Scripts/python.exe -m pytest ...`。
+>
+> **⚠ 本仓库 pytest 不打印 `N passed in Xs` 摘要行，`--junitxml` 也不生成文件**——`tests/conftest.py` 的
+> `pytest_sessionfinish` 调 `os._exit(exitstatus)`（Windows 本地 teardown 兜底），在 reporter 与 junitxml
+> 插件写盘前就结束进程。**后果：测试失败时看不到用例名与 traceback，只有 `F` 符号。**
+> 因此：**以 exit code 判成败**；计数/定位失败用 `-q` 的进度符号（`.FEsx`），或用
+> `scripts/run_tests_batched.py`（已实现符号计数 + 逐文件归因 `--files a,b`）。
+> 要看单文件失败详情：`PYTEST_NO_FORCE_EXIT=1 pytest <单个文件> -o addopts="" --tb=short`（该变量会让
+> teardown 挂死，**必须配外部 `timeout`**，仅适合单文件/小集）。
+>
+> **全量跑请用分批器**：单进程跑完 179 个测试文件需 ~150 分钟，且长驻进程会被宿主 kill。
+> `./.venv/Scripts/python.exe scripts/run_tests_batched.py --batch-size 12`（结果增量落盘、
+> 超时不标记已覆盖、`--resume` 按文件集合续跑）。
+
 > **CI 参考**：[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — 单测 `-m "not integration and not chaos and not slow"`（覆盖门禁 80%）、集成与混沌分轮 `-m "integration"` / `-m "chaos"`（v7.7 起拆分，防组合串扰）、`ruff check api/`、frontend 门禁（tsc+vitest+build）。`sync_deploy.py` 已于 v6.8.0 废除（build context 改为仓库根），CI 不再运行。
 
 ### 前端（管理面板）开发与测试
@@ -272,6 +286,14 @@ node resp-audit.cjs  # 响应式 4 断点审计（375/768/1024/1440，截图归�
 ```
 
 > **E2E 前置**：`npm run smoke` 默认打 `http://localhost:4510`（`vite preview`）。先 `npm run build && npm run preview -- --port 4510`，或设 `E2E_BASE` 指向运行中的服务（如 `E2E_BASE=https://imagefree.tingfengai.art node e2e-smoke.cjs`）。
+
+> **⚠ vitest 在非 ASCII 路径下需要关隔离**：本仓库位于 `Desktop/2api目录/...`。vitest 4 的隔离
+> worker 在含非 ASCII 的路径下启动会 60s 超时（`Timeout waiting for worker to respond`，路径被编码为
+> `2api%E7%9B%AE%E5%BD%95`）；`frontend` 上表现为 **28 个 worker 全挂、0 测试执行**。
+> 已固化进 `frontend/vite.config.ts`（`isolate:false` + `pool:'forks'` + `testTimeout/hookTimeout:20000`）
+> 与 `landing/vitest.config.js`（`isolate:false` + `pool:'threads'`），`npm test` 直接可用，无需额外参数。
+> 其中 `frontend` 用 `forks` 是因为关隔离后模块同进程加载会撞全局 `NODE_OPTIONS` 堆上限而 OOM。
+> **勿写 `test.poolOptions`**——vitest 4 已移除该字段（会被静默忽略，造成"以为配了其实没配"）。
 
 ---
 

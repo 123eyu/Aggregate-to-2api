@@ -106,13 +106,8 @@
 - `frontend/src/pages/Agent.tsx` — DAG 终态系统通知（动态 import `@tauri-apps/plugin-notification` 浏览器静默降级）
 - 签名私钥 `~/.tauri/tingfeng.key`（仓库外，构建注入 `TAURI_SIGNING_PRIVATE_KEY`）
 
-## 计划书/（2026-09-27）
-
-- `计划书/下一步改进指南.md` — v21.0.0 迭代升级方案（P0 移动原生/数据抗毁 + P1 运维观察闭环 + P2 工程质量），基线 v20.3.11，14 项缺口 + 7 批次 + 10 TDD + 15 验收项
-
 ## v21.0.0 新增（2026-09-27 终局闭环批）
 
-- `workflow_status.md` — v21 终局闭环任务状态追踪（重建，git 曾标记 D）
 - `tests/test_version_consistency.py` — 版本全链门禁（3 用例，CI 首步 fail-fast）
 - `scripts/sync_version.py` — 全链版本同步（--set/--check/--dry-run）
 - `scripts/uptime_probe.py` — UptimeRobot 拨测模拟（连续 3 次 /v1/healthz）
@@ -141,3 +136,44 @@
 ---
 
 *更新日期：2026-09-28*
+
+## v22 终局核验 + A12 config 拆分（2026-10-14）
+
+- `api/config/settings_core.py` — Settings 类 + get_settings/reset_settings 工厂（从 __init__.py 拆出，602 行）
+- `api/config/constants.py` — 模块级便捷常量快照 HOST/PORT/...（快照语义，reset 不自动刷新）
+- `api/config/__init__.py` — 80 行薄垫片 + `_pkg_attr(name)`（monkeypatch 读点，运行时读包命名空间）+ `_mock_register(name, value)` 测试钩子
+- `tests/test_config_pkg_attr.py` — 拆分契约测试（11 用例：monkeypatch 生效性/十组完整性/config 自指/常量快照非 descriptor）
+- `api/metrics_ext.py` — `_counter_inc_absolute` 恒先 `labels(...)` 触碰 + generate_duration 预建默认 label（修空库时 Grafana rate() 查 No data）
+- `tests/test_metrics_ext.py` — 增 2 用例（空库仍导出面板 counter/histogram + 增量语义不因预建样本而重复叠加）
+
+**已删除**（v22 指南全条目核验闭环后）：`计划书/下一步改进指南.md`、`workflow_status.md`、`docs/archived/` 下 5 份历史指南/状态文档。
+
+**仍未落地（需用户授权/L2）**：litestream R2 实例化（缺 R2/S3 凭证）、cf_solver 第二节点（compose 仅有注释示例，mock 双节点联邦已在 v23 N5 验证）。
+
+---
+
+*更新日期：2026-10-14*
+
+## 加固批（2026-10-14 真缺陷修复 + 验收能力补齐）
+
+**新增文件**
+- `scripts/serve_static.cjs` — 静态预览服务（E2E 专用）：`/`→landing/dist、`/admin`→frontend/dist，复刻 `api/main.py` 挂载语义（`/admin` 307 → `/admin/`、SPA 深链回退 index.html、`safeJoin` 目录穿越防护）
+- `scripts/run_tests_batched.py` — 分批测试运行器（抗宿主 kill + `--resume` 按**文件集合**去重，与 `--batch-size` 无关）；结果落 `data/batched_test_results.json|txt`
+- `scripts/verify_quiz.cjs` — HTML 报告测验的浏览器端判分验证（三场景：全对/错一题/未作答）
+- `landing/src/test/usePolling.test.ts` — usePolling 错误归类回归锁（7 用例：HTML 错误页/502/429/网络失败/正常 JSON/content-type 缺失/自定义文案）
+- `docs/2026-10-14-hardening-report.html` — 本批 HTML 报告 + 10 题测验（浏览器实机验证判分正确）
+- `docs/research/stress-verify-20261014.md` — 压测复验报告（750/750 ok、延迟噪声披露、压力后恢复验证、未覆盖项）
+
+**修改文件**
+- `scripts/e2e_mobile_smoke.cjs` — 消除硬编码宿主绝对路径（`__dirname` 推导 + `IF_PLAYWRIGHT_CORE`/`IF_CHROMIUM_EXE`/`IF_E2E_BASE` 环境变量）；补 `/admin` + 深链回退断言；overflow 判据排除「有意截断（ellipsis / overflow-x hidden|auto|scroll）」与「盒子实际未越出视口右缘（覆盖 .tf-dot-pulse::after 的 scale 脉冲等伪元素装饰）」。**已知局限**：内层横向可滚动容器若为误设计不会被该断言捕获（仅页面级 `documentElement.scrollWidth<=375` 兜底）
+- `landing/src/composables/usePolling.js` — 错误文案归类（`toUserMessage` + content-type 预检），新增 `errorDetail`（原始细节，不绑模板）与 `errorMessage` 选项；**`error` 语义变更：由原始异常字符串改为面向用户中文文案**
+- `landing/vitest.config.js` + `landing/package.json` — 固化 `isolate:false` + `pool:'threads'`（非 ASCII 路径下 vitest 4 隔离 worker 60s 超时）
+- `frontend/src/components/Layout.tsx` — topbar 面包屑 `min-width:0` + ellipsis + 480px 断点收紧（修 375px 文字重叠）
+- `frontend/src/pages/ChatPlayground.tsx` — 新增 480px 断点（动作按钮组换行 + 收缩 padding，修 375px 溢出 349>313）
+- `pyproject.toml` — ruff `extend-exclude = ["scripts/ops"]`（含凭证运维脚本不入 lint 基线）
+- `tests/test_uptime_probe.py` — 修 F821（`import types` + `-> types.ModuleType`）
+- `tests/test_account_pool.py` / `test_gallery_crud.py` / `test_health_report.py` / `test_restore_drill.py` / `api/routes/tasks.py` / `api/health_report.py` / `scripts/uptime_probe.py` — lint 债清理（F401/F841/I001/UP017/W292）
+
+**判定不实施（诚实记录）**
+- `.gitignore` 加 `_*.py` 通配 —— **实证有害**（会静默忽略 `__init__.py`/`_base.py`/`_limits.py`）
+- 为 5 个「aria-label 计数为 0」的页面补 aria-label —— 伪问题（所有 button 有可见文字、input 有 label）

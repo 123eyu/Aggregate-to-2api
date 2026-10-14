@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026-10-14 加固批报告 — 听风AI</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --line: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0 16px 80px; background: var(--bg); color: var(--text);
+    font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 40px 0 4px; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 24px 0 8px; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13.5px; margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  code { background: #21262d; padding: 1.5px 6px; border-radius: 5px; font-size: 13px;
+    font-family: ui-monospace, Consolas, monospace; color: #ffa657; }
+  pre { background: #0a0e14; border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; }
+  pre code { background: none; padding: 0; color: #c9d1d9; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; }
+  th { background: #1c2128; color: var(--muted); font-weight: 600; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 11.5px; font-weight: 600; }
+  .t-ok { background: rgba(63,185,80,.15); color: var(--ok); border: 1px solid rgba(63,185,80,.4); }
+  .t-bad { background: rgba(248,81,73,.15); color: var(--bad); border: 1px solid rgba(248,81,73,.4); }
+  .t-warn { background: rgba(210,153,34,.15); color: var(--warn); border: 1px solid rgba(210,153,34,.4); }
+  .t-info { background: rgba(88,166,255,.15); color: var(--accent); border: 1px solid rgba(88,166,255,.4); }
+  .callout { border-left: 3px solid var(--accent); padding: 10px 16px; margin: 14px 0;
+    background: rgba(88,166,255,.06); border-radius: 0 8px 8px 0; }
+  .callout.warn { border-left-color: var(--warn); background: rgba(210,153,34,.06); }
+  .callout.bad { border-left-color: var(--bad); background: rgba(248,81,73,.06); }
+  .quiz .q { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 12px 0; }
+  .quiz label { display: block; margin: 6px 0 6px 4px; cursor: pointer; padding: 5px 8px; border-radius: 6px; }
+  .quiz label:hover { background: #1c2128; }
+  .quiz input { margin-right: 8px; }
+  .fb { margin-top: 8px; font-size: 13px; display: none; padding: 8px 12px; border-radius: 6px; }
+  .fb.good { display: block; background: rgba(63,185,80,.12); color: var(--ok); }
+  .fb.bad { display: block; background: rgba(248,81,73,.12); color: var(--bad); }
+  button { background: var(--accent); color: #0d1117; border: none; padding: 10px 22px;
+    border-radius: 8px; font-size: 14.5px; font-weight: 700; cursor: pointer; margin-top: 16px; }
+  button:hover { opacity: .88; }
+  #score { margin-top: 18px; padding: 16px 20px; border-radius: 10px; font-size: 16px; font-weight: 700; display: none; }
+  .footer { color: var(--muted); font-size: 12.5px; margin-top: 50px; padding-top: 16px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>2026-10-14 加固批报告</h1>
+<div class="sub">听风AI · imagefree-2ai ｜ 基线 <code>0f658e0</code>（v23.1.0）｜ 主题：真实缺陷修复 + 验收能力补齐 ｜ 头条发现：<b>CORS 白名单从未生效</b></div>
+
+<h2>① 上下文 / 为什么做这一批</h2>
+
+<div class="card">
+<p>接手时工作区处于一个**未提交的中间状态**：</p>
+<ul>
+  <li><code>api/config/</code> 正被拆分（<code>__init__.py</code> 851 → 79 行），三个新文件 <b>untracked</b></li>
+  <li>6 份计划类文档已被 <code>git rm --cached</code>（<code>计划书/下一步改进指南.md</code>、<code>workflow_status.md</code>、<code>docs/archived/</code> ×3）</li>
+  <li><code>.wolf/memory.md</code> 有一条当天记录，声称「ruff 我改动文件 0 error」</li>
+</ul>
+<p>任务：核实这些文档项是否真闭环，并做终局审计。核心风险是**「删档冒充完成」**。</p>
+</div>
+
+<div class="callout">
+<b>审计结论：不是删档冒充完成。</b>代码痕迹证明施工真实发生过（<code>.gitignore</code> 里的 <code>v22 P0-4</code> 注释、<code>ci.yml</code> 里的 <code>v22 P1-2</code> 门禁、<code>restore_drill.py</code> 的 200+ 行真实实现）。指南自己也把未竟项标为 <code>⬜</code>，没有虚报。
+</div>
+
+<div class="callout bad">
+<b>但真正的风险恰好相反</b>：<code>api/config/constants.py</code>、<code>settings_core.py</code>、<code>tests/test_config_pkg_attr.py</code> 三个文件**全部 untracked**。一次 <code>git clean -fd</code> 就会让整套拆分（含 1000 行代码 + 13 个契约测试）无声蒸发，而 HEAD 上的 <code>__init__.py</code> 仍是 850 行旧版 → 直接 ImportError。
+</div>
+
+<h2>② 直觉 / 审计发现了什么</h2>
+
+<h3>发现 1：ruff 基线声明与事实不符</h3>
+<p><code>.wolf/memory.md</code> 写「ruff 我改动文件 0 error」，实测：</p>
+<pre><code>$ ./.venv/Scripts/python.exe -m ruff check api/ tests/ scripts/
+Found 27 errors.
+$ echo $?
+1</code></pre>
+<p>其中 <b>一个是真缺陷</b>，不是风格问题：</p>
+<pre><code>tests\test_uptime_probe.py:23:23: F821 Undefined name `ModuleType`</code></pre>
+<p>代码写 <code>def _load_probe() -&gt; "ModuleType":</code>，但只 <code>import importlib.util</code>，从未导入 <code>ModuleType</code>。字符串注解会在 <code>typing.get_type_hints()</code> 时抛 <code>NameError</code>。</p>
+
+<h3>发现 2：移动端 E2E 从未真跑通过</h3>
+<p><code>scripts/e2e_mobile_smoke.cjs</code> 默认连 <code>127.0.0.1:4590</code>，但**仓库里没有任何脚本在该端口提供服务**。更糟的是它写死了宿主绝对路径：</p>
+<pre><code>require('C:/Users/.../Desktop/imagefree-2ai/frontend/node_modules/playwright-core')
+//                        ^^^^^^^^ 与当前仓库路径 (Desktop/2api目录/...) 不同</code></pre>
+<p>换机或改目录名即崩。而且 v22 指南承诺测 <code>/</code> 与 <code>/admin</code> 两条路径，实际只测了 <code>/</code>。</p>
+
+<h3>发现 3：真实浏览器截图暴露两个用户可见缺陷</h3>
+<p>把 E2E 真跑起来后，截图直接暴露了断言查不出的问题：</p>
+<ul>
+  <li>门户画廊区域显示 <code>Unexpected token '&lt;', "&lt;!DOCTYPE "... is not valid JSON</code> —— 技术黑话直接渲染给用户</li>
+  <li>管理端 375px 下顶栏「控制台」被压成竖排，与标题重叠</li>
+</ul>
+<div class="callout warn">
+「无横向滚动」这类断言查不出这两种问题：前者不含布局溢出，后者元素没撑破容器、只是内部文字互相挤压。
+</div>
+
+<h3>发现 4：测试套件里有「看不见的失败」</h3>
+<p>分批跑全量时，几个批次超时，但其尾部输出里**残留着 <code>F</code> 符号**：</p>
+<pre><code>exit=-9 (TIMEOUT)  ...F........ [ 85%]     ← 有失败，但没超时前就出现了
+exit=-9 (TIMEOUT)  ..F...                   ← 同上</code></pre>
+<p>第二次**完整跑到 100%** 的全量运行也证实：<code>49%: F  55%: F  61%: F  68%: F  83%: E</code>
+—— <b>4 个失败 + 1 个错误</b>，而项目记忆写的是「169 关键回归全绿」。</p>
+
+<div class="callout bad">
+<b>为什么长期没被发现：失败是静默的。</b><br>
+<code>tests/conftest.py</code> 的 <code>pytest_sessionfinish</code> 调 <code>os._exit(exitstatus)</code>
+（Windows 本地 teardown 永不返回的兜底）。它在 terminal reporter 写失败详情<b>之前</b>结束进程：<br>
+· stdout 只有 <code>.....F...</code> 进度点，<b>看不到用例名与 traceback</b><br>
+· <code>--junitxml</code> <b>也不生成文件</b>（junitxml 插件同样在 sessionfinish 写盘）—— 已实测<br>
+所以全量跑只会告诉你"有 F"，永远不会告诉你是谁、为什么。
+</div>
+
+<p><b>已定位 2 处（均修复）：</b></p>
+<table>
+<tr><th>用例</th><th>根因</th><th>性质</th></tr>
+<tr>
+  <td><code>test_http_pool_config.py::<br>test_env_overrides</code></td>
+  <td>用 <code>importlib.reload(api.config)</code> 期望 env 生效。拆包后常量由 <code>constants.py</code> 在 import 期绑定为快照，而 <b>reload 包不会重新执行已导入的子模块</b>，故快照保持旧值（旧版常量内联在 <code>__init__.py</code>，reload 恰好能刷新——属偶然而非契约）</td>
+  <td><span class="tag t-bad">拆包引入的真回归</span></td>
+</tr>
+<tr>
+  <td><code>test_mcp_server.py::<br>test_tools_list_whitelist</code></td>
+  <td>白名单停在 v16。v18 P1-3 在 <code>api/mcp/tools.py</code> 有意新增 <code>retrieve_tools</code>/<code>describe_tool</code>（intent=read、expose=True 的渐进暴露），断言未同步</td>
+  <td><span class="tag t-warn">陈旧断言</span></td>
+</tr>
+</table>
+<p>修 <code>test_env_overrides</code> 时按项目文档化设计改成<b>子进程验证</b>（与生产路径一致，
+env 在 import 前设定），而非改实现去迁就一个已放弃的 in-process reload 机制。</p>
+
+<h3>发现 5：前端测试套件此前完全跑不起来</h3>
+<p>Landing 的 vitest 我早先已修。<b>管理面板（frontend）的 vitest 同样中招，而且更彻底</b>：</p>
+<pre><code>$ cd frontend &amp;&amp; npm test
+ Test Files  no tests
+      Tests  no tests
+     Errors  28 errors        ← 28 个 worker 全部启动失败
+   Duration  122.32s
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+  ❯ ../../../2api%E7%9B%AE%E5%BD%95/imagefree-2ai/...   ← 路径被 URL 编码</code></pre>
+<p><b>0 个测试执行。</b>项目记忆写的是「vitest 串行 296/296 全绿」——那是仓库移入
+<code>2api目录</code> 之前的结论，之后无人复跑。</p>
+
+<div class="callout">
+<b>修复过程中的三步（每一步都被实测否定过）：</b>
+<ol style="margin:6px 0 0;padding-left:20px">
+<li><code>isolate:false</code> + <code>pool:'threads'</code>（landing 的解法）→ 仍失败：
+<code>Worker exited unexpectedly</code>。原因是关隔离后模块挤在同一进程，撞上项目全局
+<code>NODE_OPTIONS=--max-old-space-size=512</code> 而 OOM。</li>
+<li>加大内存 → 跑起来了，但 <b>296 passed / 3 failed</b>，全是 <code>Test timed out in 5000ms</code>
+（关隔离后 setup 累计 1037s、environment 1099s，5s 超时不够）。</li>
+<li>最终：<code>pool:'forks'</code>（独立子进程各有独立堆）+ <code>testTimeout/hookTimeout: 20000</code>
+→ <b>28 files / 299 tests 全绿，69s</b>。</li>
+</ol>
+</div>
+
+<div class="callout warn">
+<b>坑中坑</b>：我中途写过一个 <code>test.poolOptions.forks.execArgv</code> 想直接给 worker 传内存参数——
+跑起来打出了 <code>DEPRECATED test.poolOptions was removed in Vitest 4</code>，<b>该配置被忽略</b>，
+内存参数根本没生效（真正起作用的是 forks）。这种"看起来配了其实没配"的项最容易让人误判，
+已在配置文件里明确标注禁用。
+</div>
+
+<h2>③ 变更 / 实际做了什么</h2>
+
+<table>
+<tr><th>#</th><th>变更</th><th>文件</th><th>类型</th></tr>
+<tr><td>0</td><td><b>修 CORS 白名单静默失效</b>：<code>IF_CORS_ORIGINS</code> 设了不生效，主链路恒为 <code>allow_origins=["*"]</code></td><td><code>api/config/constants.py</code> + <code>settings_core.py</code></td><td><span class="tag t-bad">安全</span></td></tr>
+<tr><td>1</td><td>修 <code>F821</code>：导入 <code>types</code>，去掉字符串注解引号</td><td><code>tests/test_uptime_probe.py</code></td><td><span class="tag t-bad">真缺陷</span></td></tr>
+<tr><td>2</td><td>ruff <code>extend-exclude = ["scripts/ops"]</code>（含凭证的运维脚本不入 lint 基线）</td><td><code>pyproject.toml</code></td><td><span class="tag t-info">基线</span></td></tr>
+<tr><td>3</td><td>清理 F401/F841/I001/UP017/W292 等 lint 债</td><td>7 个测试/源文件</td><td><span class="tag t-info">基线</span></td></tr>
+<tr><td>4</td><td>E2E 脚本消除硬编码路径（<code>__dirname</code> 推导 + 环境变量回退）</td><td><code>scripts/e2e_mobile_smoke.cjs</code></td><td><span class="tag t-bad">可移植性</span></td></tr>
+<tr><td>5</td><td>E2E 补 <code>/admin</code> + 深链回退断言</td><td><code>scripts/e2e_mobile_smoke.cjs</code></td><td><span class="tag t-warn">覆盖缺口</span></td></tr>
+<tr><td>6</td><td>新建静态预览服务（复刻 landing/admin 挂载语义 + 307 + SPA 回退）</td><td><code>scripts/serve_static.cjs</code> <b>新</b></td><td><span class="tag t-warn">缺失基建</span></td></tr>
+<tr><td>7</td><td>修错误文案泄漏：按失败类型归类中文 + <code>errorDetail</code> 保留原始细节</td><td><code>landing/src/composables/usePolling.js</code></td><td><span class="tag t-bad">用户可见</span></td></tr>
+<tr><td>8</td><td>该修复配 7 个回归单测</td><td><code>landing/src/test/usePolling.test.ts</code> <b>新</b></td><td><span class="tag t-ok">测试</span></td></tr>
+<tr><td>9</td><td>修 topbar 面包屑 375px 重叠（<code>min-width:0</code> + ellipsis）</td><td><code>frontend/src/components/Layout.tsx</code></td><td><span class="tag t-bad">用户可见</span></td></tr>
+<tr><td>10</td><td>修聊天页动作按钮组 375px 溢出（349 &gt; 313）</td><td><code>frontend/src/pages/ChatPlayground.tsx</code></td><td><span class="tag t-bad">用户可见</span></td></tr>
+<tr><td>11</td><td>固化 vitest <code>isolate:false</code>（非 ASCII 路径 worker 超时）</td><td><code>landing/vitest.config.js</code>、<code>package.json</code></td><td><span class="tag t-warn">环境坑</span></td></tr>
+<tr><td>12</td><td>分批测试运行器（抗宿主 kill + 断点续跑）</td><td><code>scripts/run_tests_batched.py</code> <b>新</b></td><td><span class="tag t-info">工具</span></td></tr>
+<tr><td>13</td><td>文档同步：大文件治理段用真实行数重写；skill 引用失效命令修正 + 新增踩坑章</td><td><code>CLAUDE.md</code>、<code>.claude/skills/</code></td><td><span class="tag t-info">文档</span></td></tr>
+<tr><td colspan="4" style="background:#1c2128;color:var(--muted);font-size:12.5px"><b>以下 5 项为独立审查线程发现后修复（主线程自述之外的补充）</b></td></tr>
+<tr><td>14</td><td>修 <b>静态服务崩溃</b>：<code>GET /%</code> 触发 <code>URIError</code> → <code>uncaughtException</code> → 进程退出（一条畸形请求即 DoS 掉验收服务）</td><td><code>scripts/serve_static.cjs</code></td><td><span class="tag t-bad">崩溃</span></td></tr>
+<tr><td>15</td><td>修 <b>同前缀兄弟目录穿越</b>：<code>startsWith(baseDir)</code> 未加分隔符边界，<code>landing/dist-evil</code> 可通过</td><td><code>scripts/serve_static.cjs</code></td><td><span class="tag t-bad">路径穿越</span></td></tr>
+<tr><td>16</td><td>修 <b>测试计数恒为 0</b>：本仓 <code>conftest.py</code> 的 <code>os._exit()</code> 截断 pytest 摘要行 → 改用 <code>--junitxml</code> 解析</td><td><code>scripts/run_tests_batched.py</code></td><td><span class="tag t-bad">工具缺陷</span></td></tr>
+<tr><td>17</td><td>修 <b>空转测试</b>：<code>errorMessage</code> 用例唯一断言是 <code>expect(Comp).toBeTruthy()</code>，零保护</td><td><code>landing/src/test/usePolling.test.ts</code></td><td><span class="tag t-bad">假测试</span></td></tr>
+<tr><td>18</td><td>修 <b>文档失实 2 处</b>：CLAUDE.md 称 email_pool 已拆包（实为单文件）；SKILL.md 把摘要缺失归因于 <code>-q</code>（实为 conftest <code>os._exit</code>）</td><td><code>CLAUDE.md</code>、<code>SKILL.md</code></td><td><span class="tag t-warn">文档</span></td></tr>
+<tr><td>19</td><td><code>transform()</code> 抛错被误归为"网络失败" → 独立 <code>__kind='transform'</code>；并把 <code>errorMessage</code> 接入画廊（消除 YAGNI）</td><td><code>usePolling.js</code>、<code>useApi.js</code></td><td><span class="tag t-warn">行为修正</span></td></tr>
+<tr><td colspan="4" style="background:#1c2128;color:var(--muted);font-size:12.5px"><b>以下 2 项为「静默失败」定位后修复（详见 ② 发现 4）</b></td></tr>
+<tr><td>20</td><td>修 <b>拆包引入的真回归</b>：<code>test_env_overrides</code> 依赖 <code>importlib.reload</code>，而 reload 不重执行子模块 <code>constants</code> → 改为子进程验证</td><td><code>tests/test_http_pool_config.py</code></td><td><span class="tag t-bad">真回归</span></td></tr>
+<tr><td>21</td><td>修 <b>陈旧断言</b>：MCP 工具白名单停在 v16，未同步 v18 P1-3 新增的 <code>retrieve_tools</code>/<code>describe_tool</code></td><td><code>tests/test_mcp_server.py</code></td><td><span class="tag t-warn">陈旧断言</span></td></tr>
+<tr><td colspan="4" style="background:#1c2128;color:var(--muted);font-size:12.5px"><b>以下 1 项为「测试基建不可用」定位后修复（详见 ② 发现 5）</b></td></tr>
+<tr><td>22</td><td>修 <b>管理面板 vitest 完全不可用</b>（0 测试执行 / 28 worker 错误）→ <code>isolate:false</code> + <code>pool:'forks'</code> + <code>testTimeout:20000</code></td><td><code>frontend/vite.config.ts</code></td><td><span class="tag t-bad">基建不可用</span></td></tr>
+</table>
+
+<div class="callout bad">
+<b>第 0 项是本批最重要的发现 —— CORS 白名单从未生效。</b><br>
+<code>api/main.py:128</code> 挂载中间件时读 <code>config.CORS_ORIGINS</code>，而该值来自
+<code>constants.py</code> 里一行硬编码字面量 <code>CORS_ORIGINS = "*"</code>（同文件其他常量都是
+<code>= settings.xxx</code>）。<code>Settings.__init__</code> 里虽有
+<code>global CORS_ORIGINS; ... = self.if_cors_origins or "*"</code>，但拆包后它只写
+<code>settings_core</code> 命名空间，与包命名空间无关。<br><br>
+<b>成因判定：既有缺陷，非本批拆分引入。</b>HEAD 旧版中二者同处
+<code>api.config</code> 命名空间，但模块级字面量（L817）在
+<code>settings = Settings()</code>（L603）<b>之后</b>执行 → 仍把 env 值覆盖回 <code>"*"</code>。
+净效果相同：<code>IF_CORS_ORIGINS</code> 一直是无效的。
+</div>
+
+<h3>关键代码：错误文案归类（变更 7）</h3>
+<pre><code>// 修前：res.json() 失败 → e.message 原样进 UI
+throw new Error(`HTTP ${res.status}${body ? ': ' + body.slice(0,120) : ''}`)
+// ...
+catch (e) { error.value = e.message }   // ← 用户看到 "Unexpected token '&lt;'"
+
+// 修后：内容类型预检 + 分类文案 + 细节隔离
+const ctype = (res.headers.get('content-type') || '').toLowerCase()
+if (ctype &amp;&amp; !ctype.includes('json')) {
+  const e = new Error(`unexpected content-type: ${ctype}`)
+  e.__kind = 'parse'                    // 不尝试解析 HTML
+  throw e
+}
+// ...
+error.value = toUserMessage(e)          // → "服务返回了非预期格式，请稍后重试"
+errorDetail.value = e.message           // 原始细节留作调试，不绑定模板</code></pre>
+
+<h3>关键代码：E2E overflow 判据（变更 5）</h3>
+<pre><code>// 朴素计数会把两种正常情况误报为缺陷：
+//   1. text-overflow:ellipsis 的截断容器（scrollWidth 必然 &gt; clientWidth）
+//   2. .tf-dot-pulse::after 的 scale(2) 脉冲动画（伪元素扩大盒模型）
+const intentional = cs.textOverflow === 'ellipsis'
+  || ['hidden','auto','scroll'].includes(cs.overflowX)
+if (intentional) return false
+const r = e.getBoundingClientRect()
+if (r.right &lt;= vw + 1) return false      // 盒子未越出视口 → 非真溢出
+return true</code></pre>
+
+<h2>④ 验证 / 如何证明是真的</h2>
+
+<table>
+<tr><th>验证项</th><th>命令</th><th>结果</th></tr>
+<tr><td>ruff 基线</td><td><code>ruff check api/ tests/ scripts/</code></td><td><span class="tag t-ok">0 error, exit 0</span>（修前 27 errors, exit 1）</td></tr>
+<tr><td>受影响单测</td><td><code>pytest test_uptime_probe test_restore_drill test_health_report test_gallery_crud test_account_pool test_metrics_ext test_config_pkg_attr -q</code></td><td><span class="tag t-ok">全绿</span></td></tr>
+<tr><td>门户单测</td><td><code>cd landing &amp;&amp; npm test</code></td><td><span class="tag t-ok">12 passed (2 files)</span></td></tr>
+<tr><td>静态服务探活</td><td><code>curl</code> ×4 端点</td><td><span class="tag t-ok">/ →200, /admin →307, /admin/ →200, /admin/tasks →200</span></td></tr>
+<tr><td><b>移动端 E2E</b></td><td><code>node scripts/e2e_mobile_smoke.cjs</code></td><td><span class="tag t-ok">9 passed / 0 failed，真实 chromium 1243</span></td></tr>
+<tr><td>门户构建</td><td><code>npm run build</code></td><td><span class="tag t-ok">index gzip 52.27kB &lt; 150KB</span></td></tr>
+<tr><td>管理端构建</td><td><code>npm run build</code></td><td><span class="tag t-ok">index gzip 84.50kB ≈ 基线 84.04kB</span></td></tr>
+<tr><td><b>CORS 白名单生效</b></td><td>真实 uvicorn + <code>curl -H "Origin: ..."</code></td><td><span class="tag t-ok">白名单内放行 / 白名单外无 allow-origin 头</span></td></tr>
+<tr><td>静态服务防崩溃</td><td><code>curl --path-as-is /%</code>、<code>/%zz</code></td><td><span class="tag t-ok">400 且进程存活</span>（修前：进程退出）</td></tr>
+<tr><td>静态服务防穿越</td><td><code>curl --path-as-is /../dist-evil/secret.txt</code></td><td><span class="tag t-ok">回退 index.html，无泄漏</span></td></tr>
+<tr><td>服务启动</td><td><code>uvicorn api.main:app</code></td><td><span class="tag t-ok">22~30s 内 healthz=200</span></td></tr>
+<tr><td><b>极限压测</b></td><td><code>probe_stress.py --levels 1,10,50,100,200</code></td><td><span class="tag t-ok">750/750 ok, 0 个 5xx, crashed_at=None, alive</span></td></tr>
+</table>
+
+<h3>测试有效性证据（这一点很重要）</h3>
+<div class="callout">
+修复变更 9（面包屑）后，E2E **立刻报 FAIL**（overflow 元素 6 个）—— 证明断言有真实判别力，不是摆设。随后我把断言从「朴素计数」改为「排除有意截断 + 装饰动画」，真溢出仍能抓到、噪声消除。
+</div>
+
+<h3>压测数据与噪声披露</h3>
+<table>
+<tr><th>并发</th><th>成功率</th><th>延迟说明</th></tr>
+<tr><td>1</td><td>100%</td><td>healthz p50 = 79ms（正常）</td></tr>
+<tr><td>10</td><td>100%</td><td>healthz p50 = <b>1359ms</b> ← 不合理，噪声特征</td></tr>
+<tr><td>200</td><td>100%</td><td>healthz p50 = 4343ms</td></tr>
+</table>
+<div class="callout warn">
+<b>延迟数字不能作为生产容量依据。</b>单进程 uvicorn 与压测客户端同机竞争 CPU/事件循环；并发 10 时把 0 IO 的探活端点拖到 1.3s 不可能真实发生。<b>可作依据的是错误率（0/750）与进程存活</b>。
+</div>
+<p><b>压力释放后恢复验证（新增）</b>：压测结束立即测 —— 首次 healthz = 2.06s（队列余温），随后连续 3 次回落至 37–47ms。证明无连接池耗尽、无内存泄漏残留、无限流降级卡死。</p>
+
+<h3>判定为「伪问题」的项（诚实记录）</h3>
+<table>
+<tr><th>来源</th><th>项</th><th>判定</th></tr>
+<tr><td>指南 P0-4</td><td>补 <code>.gitignore</code> <code>_*.py</code> 通配</td><td><span class="tag t-bad">不建议实施（有害）</span></td></tr>
+<tr><td>审计 agent</td><td>5 个页面 aria-label 为 0</td><td><span class="tag t-warn">伪问题，不修</span></td></tr>
+<tr><td>指南 P0-3</td><td>cf_solver 第二节点未启用</td><td><span class="tag t-info">有意边界</span></td></tr>
+</table>
+<p>第一条我做了实证：沙箱里写 <code>.gitignore</code> 含 <code>_*.py</code> 后，<code>__init__.py</code> 与 <code>_helper.py</code> **双双被静默忽略** —— 会破坏所有包的 <code>__init__.py</code> 提交。现方案（根锚定 + 目录规则）才是对的。</p>
+<p>第二条逐页核查后：所有 <code>&lt;button&gt;</code> 都带可见文字，所有 <code>&lt;input&gt;</code> 都由 <code>&lt;label&gt;</code> 包裹或带显式 <code>aria-label</code>。计数低 ≠ 可访问性缺陷，不为凑数字做改动。</p>
+
+<h2>⑤ 变更测验（请逐题作答）</h2>
+<div class="quiz" id="quiz">
+
+<div class="q" data-a="b">
+  <b>1. 接手时，本批次识别的最高风险是什么？</b>
+  <label><input type="radio" name="q1" value="a"> 计划文档被删除，属于「删档冒充完成」</label>
+  <label><input type="radio" name="q1" value="b"> config 拆分的 3 个新文件 untracked，一次 git clean 即全部丢失</label>
+  <label><input type="radio" name="q1" value="c"> 版本号不一致导致 CI 失败</label>
+  <label><input type="radio" name="q1" value="d"> cf_solver 单节点成为性能瓶颈</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="c">
+  <b>2. <code>tests/test_uptime_probe.py</code> 里的 <code>F821 Undefined name ModuleType</code> 为什么是真缺陷而非风格问题？</b>
+  <label><input type="radio" name="q2" value="a"> 因为 lint 规则是 error 级别</label>
+  <label><input type="radio" name="q2" value="b"> 因为它导致测试变慢</label>
+  <label><input type="radio" name="q2" value="c"> 字符串注解会在 <code>typing.get_type_hints()</code> 时抛 NameError</label>
+  <label><input type="radio" name="q2" value="d"> 因为它让覆盖率下降</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="a">
+  <b>3. 移动端 E2E 脚本此前为何从未真正跑通？</b>
+  <label><input type="radio" name="q3" value="a"> 它连的 4590 端口没有任何脚本提供服务，且写死了与当前仓库不符的绝对路径</label>
+  <label><input type="radio" name="q3" value="b"> 因为 playwright 未安装</label>
+  <label><input type="radio" name="q3" value="c"> 因为 chromium 版本不兼容</label>
+  <label><input type="radio" name="q3" value="d"> 因为 375px 视口不被支持</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="d">
+  <b>4. 门户画廊曾显示 <code>Unexpected token '&lt;', "&lt;!DOCTYPE "...</code>，根因是？</b>
+  <label><input type="radio" name="q4" value="a"> 后端返回了错误的 JSON</label>
+  <label><input type="radio" name="q4" value="b"> 前端缺少 i18n 翻译</label>
+  <label><input type="radio" name="q4" value="c"> 浏览器缓存了旧响应</label>
+  <label><input type="radio" name="q4" value="d"> 未校验 content-type 就调 <code>res.json()</code>，异常原文直接透传进 UI</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="b">
+  <b>5. 服务端返回 HTML 错误页时，修复后的用户看到什么？</b>
+  <label><input type="radio" name="q5" value="a"> 仍然是原始异常文本</label>
+  <label><input type="radio" name="q5" value="b"> 「服务返回了非预期格式，请稍后重试」（原始细节存入 errorDetail 供调试）</label>
+  <label><input type="radio" name="q5" value="c"> 空白页面</label>
+  <label><input type="radio" name="q5" value="d"> 自动重试直到成功</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="c">
+  <b>6. E2E 的 overflow 断言为什么要排除 <code>ellipsis</code> 容器与「盒子未越出视口」的元素？</b>
+  <label><input type="radio" name="q6" value="a"> 为了降低断言数量让测试更快</label>
+  <label><input type="radio" name="q6" value="b"> 因为这两类元素不影响用户</label>
+  <label><input type="radio" name="q6" value="c"> 因为它们的 scrollWidth 大于 clientWidth 但不产生用户可见横向滚动（截断属设计意图、脉冲伪元素非布局缺陷）</label>
+  <label><input type="radio" name="q6" value="d"> 因为 Playwright 无法测量它们</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="a">
+  <b>7. 为什么 <code>_*.py</code> 通配加入 .gitignore 是有害的？</b>
+  <label><input type="radio" name="q7" value="a"> 它会静默忽略所有 <code>__init__.py</code> 与合法私有模块（如 _base.py、_limits.py），导致新文件无法提交</label>
+  <label><input type="radio" name="q7" value="b"> 它会拖慢 git status</label>
+  <label><input type="radio" name="q7" value="c"> 它与其他规则冲突导致 git 报错</label>
+  <label><input type="radio" name="q7" value="d"> 它不会被 git 识别</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="b">
+  <b>8. vitest 在本仓库报 <code>Timeout waiting for worker to respond</code> 的根因与解法？</b>
+  <label><input type="radio" name="q8" value="a"> 测试代码有死循环 / 修复测试逻辑</label>
+  <label><input type="radio" name="q8" value="b"> 路径含非 ASCII（2api目录）导致隔离 worker 启动失败 / 设 isolate:false</label>
+  <label><input type="radio" name="q8" value="c"> 内存不足 / 增加 NODE_OPTIONS</label>
+  <label><input type="radio" name="q8" value="d"> vitest 版本过旧 / 升级依赖</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="c">
+  <b>9. 200 并发压测得到 750/750 成功，正确的解读是？</b>
+  <label><input type="radio" name="q9" value="a"> 生产环境可支撑 200 并发</label>
+  <label><input type="radio" name="q9" value="b"> p50 延迟 4.3s 说明服务有性能问题需优化</label>
+  <label><input type="radio" name="q9" value="c"> 错误率 0 与进程存活可信；延迟绝对值受本机噪声影响，不可作容量依据</label>
+  <label><input type="radio" name="q9" value="d"> 压测无效，应重跑</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="d">
+  <b>10. 本次修复面包屑重叠后，E2E 立刻报 FAIL（overflow 6 个）。这说明什么？</b>
+  <label><input type="radio" name="q10" value="a"> 修复引入了新的布局缺陷，应回退</label>
+  <label><input type="radio" name="q10" value="b"> E2E 脚本不可靠</label>
+  <label><input type="radio" name="q10" value="c"> 应该放宽断言阈值到 10 让它通过</label>
+  <label><input type="radio" name="q10" value="d"> 断言有真实判别力；随后应修正断言口径（排除截断/动画）而非放宽阈值</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="b">
+  <b>11. CORS 白名单为何从未生效？</b>
+  <label><input type="radio" name="q11" value="a"> FastAPI 的 CORSMiddleware 有 bug</label>
+  <label><input type="radio" name="q11" value="b"> <code>constants.py</code> 用硬编码字面量 <code>"*"</code> 而非读 settings；且 <code>global</code> 赋值写在 settings_core 命名空间，与 <code>main.py</code> 读的包命名空间是两个变量</label>
+  <label><input type="radio" name="q11" value="c"> 环境变量名拼错了</label>
+  <label><input type="radio" name="q11" value="d"> 需要重启服务器才生效</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="a">
+  <b>12. CORS 修复后如何证明"真的生效"？</b>
+  <label><input type="radio" name="q12" value="a"> 带白名单内 Origin 请求应回该 Origin，带白名单外 Origin 应无 allow-origin 头</label>
+  <label><input type="radio" name="q12" value="b"> 检查代码里字段名写对了</label>
+  <label><input type="radio" name="q12" value="c"> 跑单元测试绿了就够</label>
+  <label><input type="radio" name="q12" value="d"> 看配置文件里有这一项</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="d">
+  <b>13. 静态预览服务收到 <code>GET /%</code> 时曾整进程退出。根因与正确处置？</b>
+  <label><input type="radio" name="q13" value="a"> Node 版本 bug，应升级 Node</label>
+  <label><input type="radio" name="q13" value="b"> 应忽略所有畸形请求不记录</label>
+  <label><input type="radio" name="q13" value="c"> 应改用 Express 框架</label>
+  <label><input type="radio" name="q13" value="d"> <code>decodeURIComponent</code> 抛 URIError 且未被捕获 → 在请求回调中同步抛出成为 uncaughtException；应 try/catch 后返回 400</label>
+  <div class="fb"></div>
+</div>
+
+<div class="q" data-a="c">
+  <b>14. 管理面板 <code>npm test</code> 曾输出「0 tests, 28 errors」。正确判断是？</b>
+  <label><input type="radio" name="q14" value="a"> 仓库里根本没有前端测试文件</label>
+  <label><input type="radio" name="q14" value="b"> 测试代码本身全坏了</label>
+  <label><input type="radio" name="q14" value="c"> vitest 4 隔离 worker 在非 ASCII 路径下启动超时 —— 是环境问题不是测试问题；改 <code>isolate:false</code> + <code>pool:'forks'</code> 后 299/299 全绿</label>
+  <label><input type="radio" name="q14" value="d"> 需要升级 Node 版本</label>
+  <div class="fb"></div>
+</div>
+
+<button onclick="grade()">提交并判分</button>
+<div id="score"></div>
+</div>
+
+<div class="footer">
+生成：2026-10-14 ｜ 基线 <code>0f658e0</code>（v23.1.0）｜ 详细状态见 <code>workflow_status.md</code>、<code>docs/research/stress-verify-20261014.md</code>
+</div>
+
+</div>
+
+<script>
+const EXPLAIN = {
+  q1: '审计发现代码痕迹证明施工真实发生，但 3 个新文件 untracked，风险是「成果随时可失」而非「删档冒充」。',
+  q2: 'F821 标的是运行时名字未定义：字符串注解会在 get_type_hints() 解析时抛 NameError，属行为缺陷。',
+  q3: '4590 端口在仓库中无任何配套服务脚本，且脚本 require 了与当前仓库路径不同的宿主绝对路径。',
+  q4: '服务端返回 HTML 时 res.json() 抛异常，旧实现把 e.message 原样赋给 error 并渲染，未做 content-type 预检。',
+  q5: '按失败类型归类为中文文案；原始细节保留在 errorDetail，仅用于调试不绑定模板。',
+  q6: 'ellipsis 截断容器与 transform 伪元素动画的 scrollWidth 必然大于 clientWidth，但不产生用户可见横向滚动。',
+  q7: '实测：写 _*.py 通配后 __init__.py 与 _helper.py 双双被静默忽略，会破坏所有包的可提交性。',
+  q8: '堆栈显示路径被 URL 编码为 2api%E7%9B%AE%E5%BD%95，隔离 worker 在非 ASCII 路径下启动超时。',
+  q9: '错误率与进程存活是本机可信指标；单进程 uvicorn 与压测客户端同机竞争，延迟绝对值失真。',
+  q10: 'FAIL 证明断言有判别力；正确做法是修正判据口径，而非放宽阈值掩盖问题。',
+  q11: 'constants.py 硬编码了字面量 "*"，且 settings_core 的 global 赋值与 main.py 读的 api.config 命名空间是两个不同变量 —— env 值从未抵达中间件。',
+  q12: '唯一有效证据是真实 HTTP 行为：白名单内 Origin 回该 Origin、白名单外不回 allow-origin 头。跑测试/看配置都不能证明中间件真的收紧了。',
+  q13: 'decodeURIComponent 对畸形百分号编码抛 URIError；它在 http.createServer 请求回调中同步抛出 → uncaughtException → 进程退出。修复是捕获后返回 400。',
+  q14: '路径含 2api目录 时 vitest 4 隔离 worker 启动超时（URL 被编码为 2api%E7%9B%AE%E5%BD%95），28 个 worker 全挂 → 0 测试执行。是环境问题，测试本身完好；改 isolate:false + pool:forks 后 299/299 通过。'
+};
+
+function grade() {
+  let correct = 0, answered = 0;
+  const total = 14;
+  for (let i = 1; i <= total; i++) {
+    const key = 'q' + i;
+    const block = document.querySelectorAll('.q')[i - 1];
+    const ans = block.dataset.a;
+    const sel = document.querySelector(`input[name="${key}"]:checked`);
+    const fb = block.querySelector('.fb');
+    if (!sel) { fb.className = 'fb bad'; fb.textContent = '未作答'; continue; }
+    answered++;
+    if (sel.value === ans) {
+      correct++;
+      fb.className = 'fb good';
+      fb.textContent = '✓ 正确 — ' + EXPLAIN[key];
+    } else {
+      fb.className = 'fb bad';
+      fb.textContent = '✗ 错误（正确选项 ' + ans.toUpperCase() + '）— ' + EXPLAIN[key];
+    }
+  }
+  const box = document.getElementById('score');
+  box.style.display = 'block';
+  const pass = correct === total;
+  box.style.background = pass ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.12)';
+  box.style.color = pass ? 'var(--ok)' : 'var(--bad)';
+  box.textContent = `得分 ${correct}/${total}（已答 ${answered}）— ` +
+    (pass ? '通过 ✓ 你已掌握本批变更' : '未通过 ✗ 请重读 ② ③ ④ 节后重试');
+}
+
+// 每题独立反馈
+document.querySelectorAll('.q').forEach((block, idx) => {
+  const key = 'q' + (idx + 1);
+  block.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const fb = block.querySelector('.fb');
+      const ans = block.dataset.a;
+      if (inp.value === ans) { fb.className = 'fb good'; fb.textContent = '✓ 正确'; }
+      else { fb.className = 'fb bad'; fb.textContent = '✗ 再想想'; }
+    });
+  });
+});
+</script>
+</body>
+</html>

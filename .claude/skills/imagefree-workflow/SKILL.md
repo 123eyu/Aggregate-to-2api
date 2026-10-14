@@ -26,7 +26,8 @@ description: 听风AI imagefree_api 项目开发工作流指南。涉及本仓�
 > - 管理面写操作（封禁/解封、DLQ 清空/重试、日志 WS、priority=0 队列、**画廊软删**）：**保留管理 Key 鉴权**（`IF_ADMIN_KEYS`，`check_admin_key`；画廊删 scope="gallery-delete"）。
 > - 生产真实 IP：**线上 systemd 原生部署（20.204.27.154，无 Docker）**，nginx 443 → :8100；`IF_TRUSTED_PROXIES=127.0.0.1,::1`（同机反代够用；若改云 LB 私网反代需显式加入）。
 > - 版本 bump：`python scripts/sync_version.py --set X.Y.Z`（10 文件 + e2e_v12 契约；v23 起含 landing/index.html softwareVersion）→ frontend/landing `npm run build`（dist 重建）→ `pytest tests/test_version_consistency.py -q` 全绿。
-> - v22/v23 工具集：`scripts/uptime_probe.py`（拨测模拟）、`scripts/restore_drill.py --from-litestream`（恢复演练）、`scripts/e2e_mobile_smoke.cjs`（移动端冒烟）、`scripts/probe_federation.py`（solver 双节点联邦实测）、`scripts/probe_stress.py`（极限压测，v23.1）、`landing` vitest 基建（`cd landing && npm test`）。
+> - v22/v23 工具集：`scripts/uptime_probe.py`（拨测模拟）、`scripts/restore_drill.py --from-litestream`（恢复演练）、`scripts/e2e_mobile_smoke.cjs`（移动端冒烟，**须配 `scripts/serve_static.cjs`**，见 §4.2）、`scripts/probe_federation.py`（solver 双节点联邦实测）、`scripts/probe_stress.py`（极限压测，v23.1）、`landing` vitest 基建（`cd landing && npm test`）。
+> - 2026-10-14 新增工具：`scripts/serve_static.cjs`（静态预览服务，复刻 landing/admin 挂载语义）、`scripts/run_tests_batched.py`（分批测试，规避宿主 kill + 断点续跑）。
 > - v23 部署原生化：观察栈/litestream 一律走 `deploy/systemd/`（prometheus/node_exporter/grafana/litestream 独立 unit + install_observability.sh），**不再用 docker compose**。
 > - v23 安全基线：`/v1/logs/ws` 广播已脱敏（复用 log_buffer._redact）；`redis://` 与 webhook URL 日志只记 host:path；chat/DAG 限流走受信代理解析真实 IP；cancel 已补 per-IP 限流。
 > - health-report 采集降级：email_pool 源 import 走 run_in_executor+wait_for 限时（IF_SSE_HEARTBEAT_INTERVAL 心跳可配、IF_SSE_MAX_CONNECTIONS 连接上限）。
@@ -121,23 +122,85 @@ imagefree-2ai/
 ## 4. 测试指南
 
 ```bash
-# 全量单元测试
-pytest tests/ -q
+# 全量单元测试（⚠ 见下方「分批」说明：180 文件单进程跑会被宿主 kill）
+python -m pytest tests/ -q -m "not integration and not chaos and not slow"
+
+# 分批跑（推荐，规避宿主 kill + 断点续跑）
+./.venv/Scripts/python.exe scripts/run_tests_batched.py --batch-size 12
 
 # 覆盖率（CI 门槛 70%）
-pytest tests/ -q --cov=api --cov-report=term --cov-fail-under=70
+python -m pytest tests/ -q --cov=api --cov-report=term --cov-fail-under=70
 
 # 单文件
-pytest tests/test_worker_auto_scale.py -q
-
-# 异步测试：pyproject 已配置 asyncio_mode=auto，测试函数直接 async def 即可
+python -m pytest tests/test_worker_auto_scale.py -q
 ```
 
+> **解释器**：Windows 上 `python`/`python3` **不在 PATH**，必须用 `./.venv/Scripts/python.exe`。
+> **`rg` 不可用** —— 用 Grep 工具或 `grep`。
+> **⚠ 本仓库 pytest 不打印 `N passed in Xs` 摘要行，`--junitxml` 也不会生成文件。**
+> 输出只有 `.....  [100%]` 进度点。根因**不是** `-q`（标准 pytest `-q` 会打摘要）：
+> 是本仓 `tests/conftest.py` 的 `pytest_sessionfinish` 调 `os._exit(exitstatus)`
+> （Windows 本地 teardown 永不返回的兜底，CI 不触发），它在 terminal reporter **与
+> junitxml 插件**写盘之前就结束进程。<br>
+> **后果**：**测试失败时看不到失败用例名与 traceback** —— 只能看到 `F` 符号。
+> 任何靠解析摘要文本取计数的脚本都会恒得 0。<br>
+> **可行做法**：
+> 1. **以 exit code 为准判成败**（`os._exit` 传的是真实状态码，可靠）；
+> 2. **计数/定位失败用进度符号**：`-q` 的进度行实时输出，按 `.`/`F`/`E`/`s` 计数
+>    （`scripts/run_tests_batched.py` 的 `_count_from_progress()` 即此实现）；
+> 3. **只想看某一个文件的失败详情**：`PYTEST_NO_FORCE_EXIT=1 pytest <单个文件> --tb=short -rf`
+>    —— 注意该环境变量会让 teardown 挂死，**必须配外部 `timeout`**，且只适合单文件/小集。
+> 4. 想定位「哪个文件坏了」：用 `scripts/run_tests_batched.py --batch-size 1 --files a,b,c` 逐文件归因。
+
 - 测试目录约定：单元测试放 `tests/test_*.py` 顶层；集成走 `tests/integration/`；故障注入 `tests/chaos/`；压测 `tests/performance/`（pytest-benchmark marker）。
+- **宿主 kill 约束**：单次 pytest 进程跑全量（180 文件）存活过久会被宿主终止 → 用 `scripts/run_tests_batched.py` 分批（结果增量落盘 `data/batched_test_results.json`，`--resume` 续跑）。
 - Mock E2E（零真实求解消耗）：`python scripts/e2e_validate.py --mode mock`
 - 真实 E2E（需 cf_solver :8001 + 代理）：`python scripts/e2e_validate.py --mode real`
 - **注意**：E2E 倾向于真实上游接口；本地开发善用 `--mode mock` 避免消耗上游额度。
 - 新增功能必须有对应测试，TDD（先写测试 RED → 实现 GREEN → 重构 IMPROVE）。
+
+### 4.1 前端测试（本轮踩坑修正）
+
+```bash
+# 管理面板（React/Vitest）—— 28 files / 299 tests
+cd frontend && npm test
+
+# 门户（Vue/Vitest）—— 2 files / 13 tests
+cd landing && npm test
+```
+
+> **⚠ vitest 在非 ASCII 路径下的坑（两个包都中招）**：本仓库位于 `Desktop/2api目录/...`。
+> vitest 4 的**隔离 worker** 在含非 ASCII 的路径下启动会 60s 超时
+> （`[vitest-pool-runner]: Timeout waiting for worker to respond`，
+>  URL 中 `2api目录` → `2api%E7%9B%AE%E5%BD%95`）。
+> - `frontend`：曾表现为 **28 个 worker 全挂、0 测试执行**（`npm test` 完全不可用）
+> - `landing`：同样超时
+>
+> **已固化进配置**（无需再记参数）：
+> - `frontend/vite.config.ts`：`isolate: false` + `pool: 'forks'` + `testTimeout/hookTimeout: 20000`
+> - `landing/vitest.config.js`：`isolate: false` + `pool: 'threads'`
+>
+> **注意**：关隔离后模块同进程加载，5s 默认超时不够（实测 setup 累计 177s、
+> environment 811s），故一并放宽 `testTimeout`。
+> `frontend` 用 `forks`（独立子进程各有独立堆，避开项目全局
+> `NODE_OPTIONS=--max-old-space-size=512` 挤压导致的 `Worker exited unexpectedly`）；
+> **不要**写 `test.poolOptions`——vitest 4 已移除该字段（会打 DEPRECATED 警告并被忽略，
+> 让人误以为配置已生效）。
+
+### 4.2 移动端 / 视觉 E2E（本轮补齐真跑能力）
+
+```bash
+# 1) 先起静态预览服务（同时服务 landing + admin SPA，复刻 api/main.py 挂载语义）
+node scripts/serve_static.cjs --port 4590
+
+# 2) 真实 chromium 冒烟（375×667，覆盖 / 与 /admin 两条路径 + 深链回退）
+node scripts/e2e_mobile_smoke.cjs
+```
+
+- 依赖：`frontend/node_modules/playwright-core` + `ms-playwright` chromium 缓存（路径自动探测，可用 `IF_CHROMIUM_EXE` / `IF_PLAYWRIGHT_CORE` 覆盖）。
+- 产物：`docs/verification-artifacts/mobile-landing-375.png` / `mobile-admin-375.png`。
+- **overflow 断言判据**（勿退回朴素计数）：仅当元素 `scrollWidth > clientWidth` **且** 无 `ellipsis`/`overflow-x: hidden|auto|scroll` **且** 其盒子实际越过视口右缘，才算缺陷。否则会把「省略号截断」和「`.tf-dot-pulse::after` 的 scale 脉冲动画」误报为溢出。
+
 
 ## 5. 部署指南
 
@@ -211,7 +274,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8100
 | 前端仪表盘 | `frontend/src/App.tsx`、`frontend/src/pages/*`、`frontend/src/components/*` |
 | 测试配置 | `pyproject.toml`（pytest asyncio_mode=auto） |
 | 部署资产 | `deploy/docker-compose.yml` |
-| 上线演示/文档 | `README.md`、`docs/`、`workflow_status.md` |
+| 上线演示/文档 | `README.md`、`docs/`、`.wolf/memory.md` |
 | 运行时数据 | `data/*.db`、`data/imgs/` |
 
 ### 快速定位建议
@@ -259,13 +322,11 @@ last_verified: 2026-08-23 / 仓库版本 v3.1.0
 1. 目标模块若近期已验证且代码未改 → **跳过重复验证**，引用记录即可。
 2. 改动了某模块 → 在 verification-log 追加一行（日期/范围/结果/失效条件），使旧记录失效。
 3. 「已知勿重跑结论」节长期有效（如 threading.Lock 审计、硬编码评估）——除非相关代码被改。
-4. 本协议配合全局 memory/（跨会话）与 workflow_status.md（当前任务）使用。
+4. 本协议配合全局 memory/（跨会话）使用；进行中的任务状态写在 `.wolf/memory.md`，不另建 workflow_status 文件。
 
 ## 14. 会话收尾协议（v7.3）
 
 重要改动落地后：
 
-1. **workflow_status.md** 更新任务状态（事实+证据，不写推理）。
-2. **docs/verification-log.md** 追加验证记录。
-3. **docs/planning/下一步改进指南.md** 版本回写区追加（发版时）。
-4. **持久记忆**：用户偏好/项目约定/踩坑写入全局 memory/（人读不到没关系，AI 下次会话优先读）。
+1. **docs/verification-log.md** 追加验证记录（进行中的任务状态写在 `.wolf/memory.md`）。
+2. **持久记忆**：用户偏好/项目约定/踩坑写入全局 memory/（人读不到没关系，AI 下次会话优先读）。

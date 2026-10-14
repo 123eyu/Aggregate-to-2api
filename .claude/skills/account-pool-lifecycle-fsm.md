@@ -22,9 +22,16 @@ python -m pytest tests/test_email_pool.py -v
 # 验证账号 FSM 状态流转与延寿唤醒
 python -m pytest tests/test_account_pool.py -v
 
-# 验证注册 Worker 自适应分类退避
-python -m pytest tests/test_registerer_adaptive.py -v
+# 验证注册器已随 nanobanana 下线（registry 必须为空）
+python -m pytest tests/test_registerer_retired.py -v
 ```
+
+> 说明（2026-10-14 校正）：原指南引用的 `tests/test_registerer_adaptive.py` **已不存在**——
+> 注册器（`api/registerer.py::build_registerers`）随 nanobanana 下线后返回 `{}`，
+> 自适应退避测试一并移除。对应的 `IF_REG_BACKOFF_*` 配置项仍保留于
+> `api/config/`（`reg_backoff_ip` / `reg_backoff_transient_base` /
+> `reg_backoff_transient_max`），但当前**无消费者**（保留以备注册器恢复）。
+
 
 ## 3. 监控快照与看板
 - `/healthz`、`/v1/stats`、前端「号池」页：

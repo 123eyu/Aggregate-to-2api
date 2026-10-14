@@ -112,7 +112,7 @@ CI 流水线：`.github/workflows/ci.yml`（单测 + 集成 + ruff + sync_deploy
 - **聊天端点鉴权**：`/v1/chat/completions`、`/v1/messages` 受 `IF_API_KEYS` 保护（Bearer / `X-API-Key` / `?api_key=` 三种传法）；生图主链路 `/v1/generate*` 公益开放不受影响。
 - **路由引擎**：MAB-EWMA 打分 `Score=(成功率/log10时延)×负载惩罚`，10% 探索率 + 熔断器；`/v1/routing/records` 可查节点评分快照。
 - **SSE 事件流**：每任务 `subscribe`/`publish`/`replay`，`Last-Event-ID` 断线补偿；全局广播 `/v1/events/tasks` 向后兼容。
-- **大文件治理**：单文件目标 <800 行；`account_pool.py`（1037）/ `email_pool.py`（未拆后端部分）/ `config/` 等仍超线，属已知技术债（见 `workflow_status.md` P2-4）。
+- **大文件治理**：单文件目标 <800 行；`api/config/__init__.py` 已由 851 行拆为垫片（79 行）+ `settings_core.py`（602）/ `constants.py`（244）；`account_pool.py` 已拆为包（`api/account_pool/`，最大 346 行）。`email_pool.py`（384）**仍为单文件**（其 `email_sources/` 子包只承载多源适配器，非本模块拆分）。**当前仍超线**：`api/db/queries.py`（894）/ `api/routes/admin/query.py`（882）/ `api/routes/chat.py`（839）/ `api/worker/engine.py`（825）——属已知技术债，拆分需先立契约测试（参见 `tests/test_config_pkg_attr.py` 先例）。
 - **配置工厂**：`api/config/` 使用 `get_settings()` + 测试钩子 `reset_settings()`；`tests/conftest.py` autouse 复位，避免跨用例污染。
 - **日志脱敏**：`mask_key()` 对密钥/token 做掩码；`uvicorn.access` 与 `httpx` logger `propagate=False`，防 query 泄露。
 - **DB 批量写**：0.2s 窗口合并 commit；在线热备用 `VACUUM INTO`（见 `scripts/backup_db.py`）。
@@ -121,7 +121,7 @@ CI 流水线：`.github/workflows/ci.yml`（单测 + 集成 + ruff + sync_deploy
 
 ## 边界（需授权 / 默认禁止）
 
-- **生产收紧需授权**：线上 `IF_CORS_ORIGINS=*` 仍开放、`cf_solver` 并发 `page_count` 提升、自建邮箱（CF Workers + 域名）—— 均属 L3 生产灰度/外部资源，未授权不实施（见 `workflow_status.md` P0-1 / P1-2 / P3-1）。
+- **生产收紧需授权**：线上 `IF_CORS_ORIGINS=*` 仍开放、`cf_solver` 并发 `page_count` 提升、自建邮箱（CF Workers + 域名）—— 均属 L3 生产灰度/外部资源，未授权不实施。另有三项外部/生产操作未落地：**litestream R2 实例化**（需 R2/S3 凭证）、**观察栈真实起服**（`deploy/systemd/` 资产已备）、**cf_solver 第二节点**（compose 有示例未配置）。
 - **真实付费上游调用**：默认预算 0；仅用户明确批准并给预算后才可真实调用，且先本地 Mock 验证 + 最小调用次数。
 - **不可逆操作**：`git reset --hard` / `git clean` / force push / amend 用户历史 / 删除真实数据 / 数据库迁移 —— 未经明确指示不执行。
 - **scope 约束**：`可参考的项目/`（参考仓库群）与 `landing/node_modules/`、`.venv/`、`graft/` 不属本项目源码，改动不纳入提交。

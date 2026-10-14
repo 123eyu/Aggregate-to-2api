@@ -55,6 +55,10 @@ deploy/data/
 # Test artifacts
 .pytest_cache/
 test-results/
+# 分批测试运行产物（scripts/run_tests_batched.py 每次运行覆写，属临时状态不入库）
+data/batched_test_results.json
+data/batched_test_results.txt
+data/*_junit.xml
 
 # Seal
 所有用到的提供商/
