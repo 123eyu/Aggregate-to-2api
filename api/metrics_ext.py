@@ -24,16 +24,22 @@ _last_absolute: dict[tuple, float] = {}
 
 
 def _counter_inc_absolute(metric, absolute: float, *labels: str) -> None:
-    """对累计绝对值做增量 inc：第一次全量，之后只加差值（≥0）。"""
+    """对累计绝对值做增量 inc：第一次全量，之后只加差值（≥0）。
+
+    无论增量是否为 0 都先 `labels(...)` 触碰一次，确保 label 样本存在于 REGISTRY——
+    否则空库/低流量时该 label 组合永不导出，Grafana 的 rate() 查询直接 "No data"，
+    观察栈验收（面板有数据）会误判为指标缺失。
+    """
     key = (getattr(metric, "_name", str(id(metric))),) + tuple(labels)
     prev = _last_absolute.get(key, 0.0)
     _last_absolute[key] = float(absolute)
     delta = float(absolute) - prev
-    if delta > 0:
-        try:
-            metric.labels(*labels).inc(delta)
-        except Exception:
-            pass
+    try:
+        child = metric.labels(*labels)
+        if delta > 0:
+            child.inc(delta)
+    except Exception:
+        pass
 
 
 requests_total = _metric(Counter, "imagefree_requests_total", "累计请求数", ("provider", "status"))
@@ -109,4 +115,10 @@ def imagefree_metrics(engine_snapshot: dict, stats_overview: dict, solver_snapsh
         pool_keys_seen.add(key)
     if "direct" not in pool_keys_seen:
         token_pool_watermark.labels(pool="direct").set(0)
+    # generate_duration histogram 由 worker 侧 observe() 打点；空库时无任何 label 样本，
+    # Grafana 的 histogram_quantile 查询会 "No data"。预建默认 label 组合保证面板有基线。
+    try:
+        generate_duration.labels(provider="all", model="default")
+    except Exception:
+        pass
     return generate_latest(REGISTRY).decode("utf-8")
