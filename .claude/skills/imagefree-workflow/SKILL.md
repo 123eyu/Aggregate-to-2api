@@ -186,6 +186,12 @@ cd landing && npm test
 > `NODE_OPTIONS=--max-old-space-size=512` 挤压导致的 `Worker exited unexpectedly`）；
 > **不要**写 `test.poolOptions`——vitest 4 已移除该字段（会打 DEPRECATED 警告并被忽略，
 > 让人误以为配置已生效）。
+>
+> **⚠ 另有一层非配置因素：机器负载**。vitest 启动 worker 有 60s 内部超时，
+> 当本机同时跑着大量其他 node/python 进程时会触发同样的
+> `Timeout waiting for worker to respond` / `no tests` —— 此时**换 pool 无效**
+> （threads 与 forks 都会失败），应先确认机器不饱和再重跑，不要误判成配置回归。
+> 判据：`tasklist | grep -c node.exe`，若数量异常（十几个）先排查来源。
 
 ### 4.2 移动端 / 视觉 E2E（本轮补齐真跑能力）
 
