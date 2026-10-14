@@ -34,6 +34,7 @@ class ProviderSettings(BaseModel):
     reg_backoff_ip: float = 120.0
     reg_backoff_transient_base: float = 2.0
     reg_backoff_transient_max: float = 30.0
+
     @classmethod
     def from_settings(cls, s: Any) -> ProviderSettings:
         """从 Settings 实例提取字段构造 ProviderSettings。"""
