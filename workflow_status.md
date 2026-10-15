@@ -77,9 +77,9 @@
 2. **集成测试** → `tests/integration/test_honor.py:34` 断言 `GET /` == 200 得到 404，
    真因是 `landing/dist` 在后端 job 不存在（条件挂载不生效），已加前置条件守卫
 
-### 仍未闭环：前端 vitest 的一条 flake
+### 仍未闭环：前端 vitest 的一条 flake（本批结束时仍未消除）
 
-`e55e8fb` 上失败信息与之前的「重复元素」**不同**：
+失败信息（`e55e8fb` 与 `8120970` 两次一致，其余三次为 ✅）：
 
 ```
 TestingLibraryElementError: Unable to find an element with the alt text: test prompt
@@ -87,13 +87,25 @@ TestingLibraryElementError: Unable to find an element with the alt text: test pr
 ```
 
 `Gallery.test.tsx` 全部用例只 mock **1 项**，而 DOM 里的 `2 张` 与
-`GalleryAlbum.test.tsx:67`（渲染 2 项：橘猫/星球）吻合
-→ 判为 **`isolate:false` 下跨文件 DOM 残留的残余症状**（顺序/负载相关）。
+`GalleryAlbum.test.tsx:67`（渲染 2 项：橘猫/星球）吻合。
 
-**未修复原因**：本机（Node 25）无法复现，且它在 `d1b8ae7`/`26929d6`/`f862ce6`
-三次 CI 运行中均为 ✅ —— 属 flake。**不在无法验证的前提下做投机修改**（那只会污染 diff）。
-后续若稳定复现，优先怀疑 `Gallery.test.tsx` 的 `vi.useFakeTimers()` 与
-`afterEach(cleanup)` 的执行顺序（假定时器期间 unmount 可能不完整）。
+**已排除的可能**：不是本批 `afterEach(cleanup)` 修复引入的 ——
+两者症状相反（本批修的是"元素**重复**"，这里是"元素**找不到**"），
+且修复后前端门禁在 `d1b8ae7`/`26929d6`/`f862ce6` 三次运行中通过。
+
+**当前最可能的解释**：`Gallery.test.tsx` 用 `vi.useFakeTimers()`，
+而被测组件的异步加载若走 `setTimeout` 路径，测试的 `flush()`
+（单个 `await act(async () => {})` 微任务冲刷，见该文件 :39）
+**不足以让它渲染** —— 是否走到该路径取决于时序，故 flaky。
+
+**未修复原因**：本机（Node 25）无法复现（本地全套件 299/299 通过），
+**不在无法验证的前提下做投机修改**。
+
+**后续排查入口**（按可能性排序）：
+1. 把该文件 `flush()` 改为多轮微任务冲刷，或用 `await screen.findByAltText(...)` 替代
+   `getByAltText`（注意 fake timers 下 `findBy` 的 `waitFor` 行为需一并验证）
+2. 检查被测组件数据加载是否含 `setTimeout`/防抖（fake timers 下永不触发）
+3. `Gallery.test.tsx` 的 `afterEach(vi.useRealTimers)` 与 `cleanup()` 的执行顺序
 
 ---
 
