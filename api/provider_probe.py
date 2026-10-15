@@ -62,6 +62,15 @@ class ProviderProbeManager:
                 await self._task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                # 2026-10-16 修复：`await task` 会**重新抛出该任务的原始异常**。
+                # 此处原先只捕 CancelledError，于是任务以任何其它异常终止时，
+                # 异常会冒泡出 stop() → 打断 api/lifespan.py 的优雅关闭序列
+                # （其后的 DB flush / SSE 关闭 / provider 收尾等全部被跳过）。
+                # CI 实证：任务因跨事件循环抛 RuntimeError，
+                # `api/lifespan.py:177 await provider_probe.stop()` 直接炸。
+                # 关闭路径必须容错——后台任务的失败不该让整个关机流程失败。
+                log.warning("上游巡检任务以异常终止（关闭时忽略）: %s", e)
             self._task = None
 
     async def _loop(self, interval: int) -> None:

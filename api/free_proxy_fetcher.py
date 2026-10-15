@@ -256,6 +256,11 @@ class FreeProxyFetcher:
                 await self.task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                # 同 provider_probe.stop()：`await task` 会重抛任务原始异常。
+                # 关闭路径必须容错，否则异常冒泡会打断调用方（lifespan）的
+                # 优雅关闭序列，或留下 "Task exception was never retrieved" 噪声。
+                log.warning("免费代理抓取任务以异常终止（关闭时忽略）: %s", e)
         if self._client:
             await self._client.aclose()
             self._client = None

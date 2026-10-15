@@ -21,6 +21,7 @@
 安全红线：仅对免费代理探测（住宅代理有凭据，host 即出口）；trace 端点返回的是「出口 IP」，
 不是用户真实 IP，无隐私泄露风险。Mock 场景覆盖：success / 403 / 超时 / 主端点失败换备用。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -69,6 +70,7 @@ def _parse_trace(text: str) -> dict:
 def _extract_host(url: str) -> str:
     """从代理 url（``http://1.2.3.4:80`` 或 ``http://user:pass@host:port``）提取 host。"""
     from urllib.parse import urlsplit
+
     try:
         u = urlsplit(url)
         return u.hostname or url
@@ -119,7 +121,11 @@ class ProxyTracer:
         self._client: httpx.AsyncClient | None = None
         self._cache: dict[str, dict] = {}  # url -> geo（TTL=IF_PROXY_TRACE_TTL）
         self.stats: dict = {
-            "probed": 0, "ok": 0, "real_exit": 0, "failed": 0, "last_at": 0.0,
+            "probed": 0,
+            "ok": 0,
+            "real_exit": 0,
+            "failed": 0,
+            "last_at": 0.0,
         }
 
     async def start(self) -> None:
@@ -140,6 +146,11 @@ class ProxyTracer:
                 await self.task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                # 同 provider_probe.stop()：`await task` 会重抛任务原始异常。
+                # 关闭路径必须容错，否则异常冒泡会打断调用方（lifespan）的
+                # 优雅关闭序列，或留下 "Task exception was never retrieved" 噪声。
+                log.warning("Cloudflare trace 探测任务以异常终止（关闭时忽略）: %s", e)
             self.task = None
         if self._client:
             await self._client.aclose()
@@ -152,8 +163,10 @@ class ProxyTracer:
                 self.stats = await self._probe_once()
                 log.info(
                     "trace 探测: probed=%d ok=%d real_exit=%d failed=%d",
-                    self.stats["probed"], self.stats["ok"],
-                    self.stats["real_exit"], self.stats["failed"],
+                    self.stats["probed"],
+                    self.stats["ok"],
+                    self.stats["real_exit"],
+                    self.stats["failed"],
                 )
             except asyncio.CancelledError:
                 raise
@@ -244,8 +257,11 @@ class ProxyTracer:
 
         await asyncio.gather(*(_probe_one(u) for u in targets))
         return {
-            "probed": probed, "ok": ok, "real_exit": real_exit,
-            "failed": failed, "last_at": time.time(),
+            "probed": probed,
+            "ok": ok,
+            "real_exit": real_exit,
+            "failed": failed,
+            "last_at": time.time(),
         }
 
 
