@@ -48,8 +48,13 @@ export default defineConfig({
     // vitest 4 的隔离 worker 启动会在 60s 后超时
     // （`[vitest-pool-runner]: Timeout waiting for worker to respond`，
     //  URL 中 `2api目录` 被编码为 2api%E7%9B%AE%E5%BD%95），28 个 worker 全挂、0 测试执行。
-    // 测试间通过 src/test/setup.ts 的 beforeEach 清理，不依赖 isolate。
-    // （landing/vitest.config.js 已用同一方案）
+    //
+    // 2026-10-15 修正：此前本注释写「测试间通过 src/test/setup.ts 的 beforeEach 清理」，
+    // **但 setup.ts 当时根本没有任何清理逻辑** —— 注释与实现不符，导致 CI 上稳定失败：
+    //   CostsPage.test.tsx「按模型」用例 → Found multiple elements with role "button"
+    //   （上个用例 render 的组件残留在 document 上，isolate:false 下无人清理）
+    // 现已在该文件显式注册 `afterEach(cleanup)`。**本设置与那个 cleanup 是配套的，
+    // 改动任一方都要同时检查另一方。**
     isolate: false,
     // forks（独立子进程）：每个测试进程有独立堆，不易受项目全局
     // NODE_OPTIONS=--max-old-space-size=512 挤压而 OOM。

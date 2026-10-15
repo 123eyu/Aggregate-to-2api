@@ -40,7 +40,6 @@ async def run_background_tasks(db, engine, registry, solver_guard, worker_health
 
     async def _cleanup_loop() -> None:
         nonlocal _auth_last
-        from .worker import engine as _engine  # 复用单例（避免参数错位）
 
         while True:
             try:
@@ -69,10 +68,19 @@ async def run_background_tasks(db, engine, registry, solver_guard, worker_health
                 nc = await db.clean_expired_cache()
                 if nc:
                     log.info("缓存表周期清理: 删除 %d 个过期条目", nc)
-                if config.IF_PERSISTENT_QUEUE_ENABLED and _engine._queue_db:
-                    nq = await _engine._queue_db.cleanup()
-                    if nq.get("deleted"):
-                        log.info("持久化队列周期清理: 删除 %d 个过期条目", nq["deleted"])
+                if config.IF_PERSISTENT_QUEUE_ENABLED:
+                    # 2026-10-15 修复：原写法 `_engine._queue_db`（_engine 是 :43 导入的**模块**
+                    # `api.worker.engine`）必然 AttributeError —— `_queue_db` 是 Engine **实例属性**，
+                    # 模块上没有。该异常被外层 :142 `except Exception` 吞成 warning，且因为它在
+                    # try 块中部抛出，**导致其后所有清理逻辑（DAG TTL、告警评估）每次都被跳过**。
+                    # 正确取值走 api.meta 的 engine 单例（与 lifespan 注入的是同一个实例）。
+                    from .meta import engine as _engine_inst
+
+                    _qdb = getattr(_engine_inst, "_queue_db", None)
+                    if _qdb:
+                        nq = await _qdb.cleanup()
+                        if nq.get("deleted"):
+                            log.info("持久化队列周期清理: 删除 %d 个过期条目", nq["deleted"])
                 # v10.0.0：DAG run 持久化 TTL 清理（独立 dag_runs.db，retention 天数可配）
                 try:
                     from .routes.agent_dag import _STORE as _dag_store

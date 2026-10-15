@@ -149,6 +149,65 @@ async def test_clear_task():
     assert h.buffer_size("t") == 0
 
 
+# ── 2026-10-15 回归锁：多订阅者下的缓冲清理 ─────────────────────────
+#
+# 真缺陷：连接 finally 原先无条件调 `clear_task`。同一 task 被 2+ 客户端订阅时
+# （多标签页 / 重连旧连接尚未断开），先断开的一方会清掉**共享**回放缓冲，
+# 另一方之后用 Last-Event-ID 重连拿不到任何历史 —— 静默降级、不报错。
+# 修法：新增 `clear_task_if_idle`（判空与清理同锁内完成），连接收尾改用它。
+
+
+@pytest.mark.asyncio
+async def test_clear_task_if_idle_keeps_buffer_while_other_subscriber_remains():
+    """A 断开后缓冲必须保留（B 仍在订阅）——这是原缺陷的核心断言。"""
+    h = TaskEventHub()
+    await h.publish("multi", "status", {"n": 1})
+
+    qa = await h.subscribe("multi")
+    qb = await h.subscribe("multi")
+    assert h.subscriber_count("multi") == 2
+    assert h.buffer_size("multi") == 1
+
+    # 客户端 A 断开（复刻 sse_events/ws_events 的 finally 顺序）
+    await h.unsubscribe("multi", qa)
+    await h.clear_task_if_idle("multi")
+
+    # B 仍在订阅 → 缓冲不得被清
+    assert h.subscriber_count("multi") == 1
+    assert h.buffer_size("multi") == 1, "A 断开即清缓冲 → B 失去 Last-Event-ID 回放（原缺陷复现）"
+
+    # B 也能继续收到实时事件
+    await h.publish("multi", "status", {"n": 2})
+    assert h.buffer_size("multi") == 2
+    assert qb.qsize() >= 1
+
+    # 最后一个订阅者断开 → 此时才允许清理
+    await h.unsubscribe("multi", qb)
+    await h.clear_task_if_idle("multi")
+    assert h.subscriber_count("multi") == 0
+    assert h.buffer_size("multi") == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_task_if_idle_clears_when_no_subscriber():
+    """无订阅者时按预期清理（防内存膨胀语义不变）。"""
+    h = TaskEventHub()
+    await h.publish("idle", "status", {})
+    assert h.buffer_size("idle") == 1
+    await h.clear_task_if_idle("idle")
+    assert h.buffer_size("idle") == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_task_still_unconditional():
+    """`clear_task` 保持无条件清理语义（其他调用方与测试依赖）。"""
+    h = TaskEventHub()
+    await h.publish("force", "status", {})
+    _q = await h.subscribe("force")
+    await h.clear_task("force")
+    assert h.buffer_size("force") == 0, "clear_task 应保持无条件清理"
+
+
 # ── publish_task_event（同步入口）─────────────────────────────
 
 
@@ -355,3 +414,43 @@ def test_set_heartbeat_interval_invalid_ignored():
     se.set_heartbeat_interval("abc")
     assert se.heartbeat_interval() == 5.0  # 非数字忽略
     se.set_heartbeat_interval(15.0)  # 还原
+
+
+# ── 调用点契约：连接收尾必须用「判空」版清理 ────────────────────────
+#
+# 上组测试验证 `clear_task_if_idle` **方法本身**的行为，但**测不到调用点**：
+# 把生成器里的 `clear_task_if_idle` 改回 `clear_task`，那组测试照样全绿
+# （实测变异确认）。故补本组，锁死两个连接收尾点都使用判空版。
+
+
+def test_generator_finally_uses_idle_aware_clear():
+    """task_events_generator 的 finally 必须调 `clear_task_if_idle`，不得用无条件 `clear_task`。"""
+    import ast
+    import inspect
+    import textwrap
+
+    src = textwrap.dedent(inspect.getsource(task_events_generator))
+    tree = ast.parse(src)
+
+    called: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in ("clear_task", "clear_task_if_idle"):
+            called.add(node.attr)
+
+    assert "clear_task_if_idle" in called, (
+        "task_events_generator 未调用 clear_task_if_idle —— 多订阅者场景下会误清他人回放缓冲"
+    )
+    assert "clear_task" not in called, "task_events_generator 不应直接调用无条件 clear_task"
+
+
+def test_ws_task_events_uses_idle_aware_clear():
+    """ws_events 的任务 WS 收尾同样必须用判空版（同一缺陷的另一处调用点）。"""
+    import inspect
+
+    from api import ws_events
+
+    src = inspect.getsource(ws_events)
+    # 只看非注释行，避免说明性注释里的旧写法被误判
+    code = "\n".join(ln.split("#", 1)[0] for ln in src.splitlines())
+    assert "clear_task_if_idle" in code, "ws_events 收尾未使用 clear_task_if_idle"
+    assert "hub.clear_task(" not in code, "ws_events 收尾仍有无条件 clear_task 调用"

@@ -81,9 +81,7 @@ async def test_retention_loop_triggers_cleanup_batched(monkeypatch):
             return 0
 
     stub = _StubDB()
-    task = asyncio.create_task(
-        bg_tasks.run_background_tasks(stub, None, None, None, None, None)
-    )
+    task = asyncio.create_task(bg_tasks.run_background_tasks(stub, None, None, None, None, None))
     try:
         for _ in range(100):
             if stub.calls:
@@ -122,13 +120,9 @@ async def test_cleanup_batched_batches(tmp_db):
     async with conn_lock:
         await conn.execute("BEGIN")
         for i in range(12000):
-            await conn.execute(
-                "INSERT INTO requests (id, created_at) VALUES (?, ?)", (f"old-{i}", old_ts)
-            )
+            await conn.execute("INSERT INTO requests (id, created_at) VALUES (?, ?)", (f"old-{i}", old_ts))
         for i in range(10):
-            await conn.execute(
-                "INSERT INTO requests (id, created_at) VALUES (?, ?)", (f"new-{i}", new_ts)
-            )
+            await conn.execute("INSERT INTO requests (id, created_at) VALUES (?, ?)", (f"new-{i}", new_ts))
         await conn.commit()
 
     result = await tmp_db.cleanup_batched(retention_days=7, batch_size=5000)
@@ -160,9 +154,7 @@ async def test_cleanup_batched_single_batch_no_op(tmp_db):
     async with conn_lock:
         await conn.execute("BEGIN")
         for i in range(5):
-            await conn.execute(
-                "INSERT INTO requests (id, created_at) VALUES (?, ?)", (f"fresh-{i}", fresh_ts)
-            )
+            await conn.execute("INSERT INTO requests (id, created_at) VALUES (?, ?)", (f"fresh-{i}", fresh_ts))
         await conn.commit()
 
     result = await tmp_db.cleanup_batched(retention_days=7, batch_size=5000)
@@ -300,3 +292,71 @@ async def test_list_tasks_and_gallery_exclude_archived_by_default(tmp_db):
     # 热统计不含 archived
     ov = await tmp_db.stats_overview()
     assert ov["total_requests"] == 2 and ov["total_images"] == 1
+
+
+# ── 2026-10-15 回归锁：持久化队列清理的取引擎方式 ─────────────────────
+#
+# 真缺陷（2026-10-15 审计实测）：`_cleanup_loop` 原先写 `_engine._queue_db`，
+# 而 `_engine` 是 `from .worker import engine as _engine` 导入的**模块**，
+# `_queue_db` 是 `Engine` **实例属性**（模块上没有）→ 每次必抛 AttributeError，
+# 被外层 `except Exception` 吞成 warning，且因异常在 try 块中部抛出，
+# **导致其后所有清理逻辑（DAG TTL、告警评估）每次都被跳过**。
+#
+# 本组锁死「必须从 api.meta 取 Engine 实例，且取值需防御式 getattr」这一契约。
+
+
+def test_cleanup_loop_uses_defensive_getattr_for_queue_db():
+    """_cleanup_loop 对 `_queue_db` 必须用**防御式 getattr**（缺失时降级 None，不抛异常）。
+
+    反例（原 bug 与常见误修）：
+      - `_engine._queue_db`            （模块属性 → AttributeError）
+      - `_engine_inst._queue_db`       （实例属性直取 → 队列未初始化时 AttributeError）
+
+    两种写法都会让整个清理循环中途抛出、被外层 except 吞掉，**跳过其后的所有清理**。
+    本测试用 AST 定位实际表达式，而非字符串匹配 —— 字符串匹配会被改名绕过。
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    src = inspect.getsource(bg_tasks.run_background_tasks)
+    # getsource 对嵌套函数返回的片段可能带残留缩进；dedent 后才能安全 parse
+    tree = ast.parse(textwrap.dedent(src))
+
+    # 找所有对 `_queue_db` 的属性访问，必须是 getattr(..., "_queue_db", ...) 的常量参数形式
+    bare_attr_access: list[int] = []
+    getattr_calls: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "_queue_db":
+            bare_attr_access.append(node.lineno)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and node.args[1].value == "_queue_db":
+                getattr_calls.append(node.lineno)
+
+    assert not bare_attr_access, (
+        f"第 {bare_attr_access} 行存在裸属性访问 `.<obj>._queue_db` —— "
+        "队列未初始化时会 AttributeError 并中断整个清理循环；"
+        '应改为 getattr(obj, "_queue_db", None)'
+    )
+    assert getattr_calls, '未找到 getattr(..., "_queue_db", ...) 防御式取值 —— 契约要求缺失时降级 None'
+
+
+def test_engine_instance_exposes_queue_db():
+    """api.meta.engine 是 Engine 实例，且按防御式取值可拿到 _queue_db（可能为 None）。"""
+    from api import meta
+
+    assert type(meta.engine).__name__ == "Engine", "meta.engine 必须是 Engine 实例"
+    # getattr 带默认值：未初始化队列时为 None，不抛异常
+    assert hasattr(meta.engine, "__class__")
+    qdb = getattr(meta.engine, "_queue_db", None)
+    # 允许 None（未启用持久化队列）或 QueueStore 实例，但**不允许取属性抛异常**
+    assert qdb is None or type(qdb).__name__ == "QueueStore", f"意外的 _queue_db 类型: {type(qdb)}"
+
+
+def test_engine_module_has_no_queue_db_attribute():
+    """锁死事实：模块 api.worker.engine 上没有 _queue_db —— 这是原 bug 的根因。"""
+    import api.worker.engine as engine_module
+
+    assert not hasattr(engine_module, "_queue_db"), (
+        "若模块开始暴露 _queue_db，本回归测试的前提已变，请重新评估 _cleanup_loop 的取值方式"
+    )

@@ -44,6 +44,7 @@ def heartbeat_interval() -> float:
     """当前心跳间隔（秒）。"""
     return _HEARTBEAT_INTERVAL
 
+
 # v8.0 P1-6: 心跳 sequence number 全局计数器（客户端可检测丢包）
 _hb_seq = 0
 
@@ -56,7 +57,7 @@ def _next_heartbeat_seq() -> int:
 
 def _sse_encode(event: str, data: dict, event_id: int) -> str:
     """标准 SSE 编码：event + id + data。"""
-    return f"id: {event_id}\n" f"event: {event}\n" f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"id: {event_id}\nevent: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 class StoredEvent:
@@ -158,8 +159,29 @@ class TaskEventHub:
         return sum(len(subs) for subs in self._subscribers.values())
 
     async def clear_task(self, task_id: str) -> None:
-        """任务终态后清理缓冲（防止长跑服务内存膨胀）。"""
+        """任务终态后清理缓冲（防止长跑服务内存膨胀）。
+
+        注意：本方法**无条件**清缓冲。在「多个订阅者订阅同一 task」场景下，
+        任一订阅者断开就调用它会误清其余订阅者的历史缓冲，使其
+        `Last-Event-ID` 回放静默失效。连接收尾请改用 `clear_task_if_idle`。
+        """
         async with self._lock:
+            self._buffers.pop(task_id, None)
+
+    async def clear_task_if_idle(self, task_id: str) -> None:
+        """仅当该 task **没有剩余订阅者**时清理缓冲（连接收尾专用）。
+
+        2026-10-15 修复：连接 finally 里原先直接调 `clear_task`，导致同一 task
+        被 2+ 客户端订阅时（多标签页、或重连旧连接尚未断开），先断开的一方
+        会清掉共享缓冲 —— 另一方之后断线重连拿不到任何回放（静默降级，不报错）。
+
+        判空与清理**在同一把锁内**完成，避免 check-then-act 竞态：
+        若先读 `subscriber_count()==0` 再调 `clear_task()`，其间新订阅者
+        可能已入队，其缓冲会被误删。
+        """
+        async with self._lock:
+            if self._subscribers.get(task_id):
+                return
             self._buffers.pop(task_id, None)
 
 
@@ -243,7 +265,9 @@ async def task_events_generator(task_id: str, request) -> Any:
                 pass
     finally:
         await hub.unsubscribe(task_id, queue)
-        await hub.clear_task(task_id)
+        # 仅在无剩余订阅者时清缓冲：同一 task 可被多客户端订阅，
+        # 无条件清理会让其余订阅者失去 Last-Event-ID 回放（见 clear_task_if_idle）。
+        await hub.clear_task_if_idle(task_id)
 
 
 def publish_task_event(task_id: str, event: str, data: dict) -> None:

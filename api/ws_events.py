@@ -122,7 +122,8 @@ async def ws_task_events(websocket: WebSocket, task_id: str) -> None:
     finally:
         hb_task.cancel()
         await hub.unsubscribe(task_id, queue)
-        await hub.clear_task(task_id)
+        # 同 sse_events：多订阅者场景下不可无条件清缓冲（见 clear_task_if_idle）
+        await hub.clear_task_if_idle(task_id)
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close()
 
