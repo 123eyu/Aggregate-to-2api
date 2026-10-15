@@ -45,7 +45,20 @@ os.environ.setdefault("IF_ACCOUNT_AUTO", "0")
 # 累积相同 content（query 时 count 逐轮膨胀，`assert 10 == 1` 失败），真实库被测试污染。
 # 统一早设临时库：集成与单测共享同一进程临时库（仍不污染真实数据文件），
 # 各用例用唯一 user_key/content 天然隔离（见 test_agent_e2e 的唯一 content）。
-if "IF_DB_FILE" not in os.environ:
+#
+# 2026-10-16 修正：改为**无条件**指向临时库（原为 `if "IF_DB_FILE" not in os.environ`）。
+# 原写法不信任边界搞反了 —— 它信任**外部注入**的 IF_DB_FILE，于是 CI 工作流里的
+# `IF_DB_FILE: "data/test.db"`（.github/workflows/ci.yml）会让本段**整个跳过**：
+# 模块级早设失效，测试落到共享的文件库，ip_blocklist_store 等写路径随后抛
+# `sqlite3.OperationalError: database is locked`（CI 实证，junit 产物确认）。
+# 同时这也消除了「宿主 shell / .env 残留 IF_DB_FILE → 测试写真实库」的污染面。
+#
+# 调试时如需固定库文件，用**专用**变量 `IF_TEST_DB_FILE` 显式指定（不与应用的
+# IF_DB_FILE 混用，避免再次把「配置应用」和「配置测试」两件事搅在一起）。
+_TEST_DB_OVERRIDE = os.environ.get("IF_TEST_DB_FILE", "").strip()
+if _TEST_DB_OVERRIDE:
+    os.environ["IF_DB_FILE"] = _TEST_DB_OVERRIDE
+else:
     _DB_FILE = tempfile.mktemp(suffix=".db")
     os.environ["IF_DB_FILE"] = _DB_FILE
 
