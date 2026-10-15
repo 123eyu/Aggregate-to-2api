@@ -205,3 +205,126 @@ class TestEnvExampleSync:
         env_vars = set(re.findall(r"^(IF_[A-Z0-9_]+)\s*=", env_text, re.M))
         orphan = sorted(env_vars - self._config_consumed())
         assert not orphan, f"env.example 存在但 config 未消费: {orphan}"
+
+
+# ── 运行时反射版 env 映射契约（2026-10-15）────────────────────────────
+#
+# 背景：上方 TestEnvExampleSync 用 **regex 扫源码文本** 抓 `validation_alias = "IF_X"`
+# 字面量。它有一个结构性盲区——**没有 validation_alias 的字段根本不进集合**，
+# 因此「字段存在、但 env 永远读不到」这类缺陷对双向校验完全不可见。
+#
+# 实证：`Settings.user_agent`（settings_core.py:79）是 202 个字段中唯一漏挂
+# validation_alias 的，导致 `IF_USER_AGENT` 静默失效——设了也不生效，且无测试能发现。
+#
+# 本组改用 **运行时 model_fields 反射**，为每个字段的 env 映射状态建立显式契约：
+#   - 有 IF_* alias      → 进入 ENV_MAPPED 白名单（可被 env 覆盖）
+#   - 无 alias 但按设计   → 必须登记在 NO_ENV_BY_DESIGN 并写明理由
+#   - 无 alias 且未登记   → fail（强制新增字段时做出显式决策，而非静默漏挂）
+
+# 按设计**不**映射 env 的字段：值为内部派生对象 / pydantic 保留 / 有意固定。
+NO_ENV_BY_DESIGN: dict[str, str] = {
+    "user_agent": (
+        "有意固定 UA 指纹（Chrome/150）。改 UA 须同步 api/config/http.py、"
+        "api/imagefree_client.py:_browser_headers、api/providers/aifreeforever.py:_BROWSER_HEADERS "
+        "四处，避免上游 CF 指纹分叉。若将来要放开为 env 可配，请挂 validation_alias 并移出本表。"
+    ),
+}
+
+# 允许出现「无 alias」的 pydantic / 内部字段前缀（对象、工厂、缓存等，非用户配置项）。
+_ALIAS_EXEMPT_PREFIXES = (
+    "_",  # 私有/缓存字段
+    "if_",  # 正常走 Field(validation_alias=...) 的字段，此处兜底不该命中
+)
+_ALIAS_EXEMPT_NAMES = frozenset(
+    {
+        # pydantic BaseModel 内建（随版本增减，按名字豁免）
+        "model_config",
+        "model_fields",
+        "model_computed_fields",
+    }
+)
+
+
+def _field_alias(f) -> str | None:
+    """取字段的 env alias（可能是 str 或 AliasChoices，统一转 str）。"""
+    a = getattr(f, "validation_alias", None)
+    if a is None:
+        return None
+    return str(a)
+
+
+class TestEnvMappingContract:
+    """运行时反射：Settings 每个字段的 env 映射状态必须显式登记。"""
+
+    @staticmethod
+    def _settings_fields():
+        # 注意：Settings 可能是经命名空间垫片再导出的别名，type(Settings) 会取到
+        # ModelMetaclass。必须按 Pydantic 官方方式读 model_fields（类属性访问）。
+        mf = getattr(Settings, "model_fields", None)
+        assert mf, "Settings.model_fields 不可用——Pydantic 版本或导出方式变化"
+        return mf
+
+    def test_every_field_is_env_mapped_or_explicitly_exempt(self):
+        """无 IF_* alias 的字段必须登记在 NO_ENV_BY_DESIGN。
+
+        新增字段若忘记挂 validation_alias，本测试立即 fail，
+        强制作者显式选择「挂 alias」或「登记为有意不映射」——
+        杜绝 IF_USER_AGENT 式静默失效（配了不生效、且无测试能发现）。
+        """
+        unregistered: list[str] = []
+        for name, f in self._settings_fields().items():
+            alias = _field_alias(f)
+            if alias is not None and alias.upper().startswith("IF_"):
+                continue
+            if name in NO_ENV_BY_DESIGN or name in _ALIAS_EXEMPT_NAMES:
+                continue
+            if name.startswith(_ALIAS_EXEMPT_PREFIXES):
+                continue
+            unregistered.append(f"{name}(alias={alias!r})")
+        assert not unregistered, (
+            "以下 Settings 字段既无 IF_* validation_alias，也未登记进 NO_ENV_BY_DESIGN：\n  "
+            + "\n  ".join(sorted(unregistered))
+            + "\n请二选一：(a) 挂 Field(validation_alias='IF_XXX') 使其可被 env 覆盖；"
+            "(b) 加入 NO_ENV_BY_DESIGN 并写明为何有意不映射。"
+        )
+
+    def test_no_env_by_design_entries_still_exist(self):
+        """NO_ENV_BY_DESIGN 里的字段必须仍然存在于 Settings（防止登记表腐烂）。"""
+        fields = self._settings_fields()
+        stale = sorted(k for k in NO_ENV_BY_DESIGN if k not in fields)
+        assert not stale, f"NO_ENV_BY_DESIGN 登记的字段已从 Settings 移除，请清理: {stale}"
+
+    def test_no_env_by_design_has_reason(self):
+        """每条豁免都要写明理由（防止无脑往表里塞字段绕过契约）。"""
+        empty = sorted(k for k, v in NO_ENV_BY_DESIGN.items() if not (v or "").strip())
+        assert not empty, f"NO_ENV_BY_DESIGN 缺理由: {empty}"
+
+    def test_if_prefixed_property_names_are_consistent(self):
+        """属性名以 if_ 开头的字段，alias 必须是 IF_ 前缀（防命名/映射错配）。
+
+        反向（alias 是 IF_ 但属性名无 if_ 前缀）在当前代码库中属**历史分组的既成事实**
+        （202 字段中 66 个如此，且 if_x 与 x 从不共存、零冲突），不强制统一，
+        仅断言「有 if_ 前缀 ⇒ alias 必须是 IF_」这一单向不变式。
+        """
+        bad: list[str] = []
+        for name, f in self._settings_fields().items():
+            if not name.startswith("if_"):
+                continue
+            alias = _field_alias(f)
+            if alias is None or not alias.upper().startswith("IF_"):
+                bad.append(f"{name} → alias={alias!r}")
+        assert not bad, f"if_ 前缀字段的 alias 不是 IF_ 前缀: {bad}"
+
+    def test_alias_uniqueness(self):
+        """两个字段不得共用同一 env alias（后者静默覆盖前者）。"""
+        seen: dict[str, str] = {}
+        dupes: list[str] = []
+        for name, f in self._settings_fields().items():
+            alias = _field_alias(f)
+            if alias is None:
+                continue
+            if alias in seen:
+                dupes.append(f"{alias}: {seen[alias]} vs {name}")
+            else:
+                seen[alias] = name
+        assert not dupes, f"env alias 重复（后者会静默覆盖前者）: {dupes}"

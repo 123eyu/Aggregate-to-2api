@@ -34,7 +34,9 @@ def version_sources() -> dict[str, str]:
         "desktop/src-tauri/tauri.conf.json": _extract(
             r'"version": "([^"]+)"', ROOT / "desktop" / "src-tauri" / "tauri.conf.json"
         ),
-        "desktop/src-tauri/Cargo.toml": _extract(r'^version = "([^"]+)"', ROOT / "desktop" / "src-tauri" / "Cargo.toml"),
+        "desktop/src-tauri/Cargo.toml": _extract(
+            r'^version = "([^"]+)"', ROOT / "desktop" / "src-tauri" / "Cargo.toml"
+        ),
         "README.md": _extract(r"version-([0-9]+\.[0-9]+\.[0-9]+)", ROOT / "README.md"),
     }
 
@@ -80,3 +82,45 @@ def test_e2e_v12_contract_matches(version_sources: dict[str, str]) -> None:
     assert hits, "e2e_v12.py 中未找到版本契约断言"
     for hit in hits:
         assert hit == expected, f"e2e_v12 契约版本 {hit} != 全链 {expected}"
+
+
+# ── 文档版本漂移门禁（2026-10-15）────────────────────────────────────
+#
+# 背景：`scripts/sync_version.py` 的 TARGETS 只覆盖 10 个代码/配置文件，
+# **不含 .claude/skills/** 下的开发文档。实证：2026-10-15 审计时 SKILL.md
+# 写「当前版本 v23.1.0」，而实际已是 v23.2.0——漂移 2 个小版本且无人发现。
+#
+# 处置选择：**不把 skill 文档塞进 sync_version 自动改写**（其版本号是叙述性中文
+# 文字，格式多样，正则替换易误伤），改为**加门禁测试**——漂移即红，由人确认后手工改。
+
+# (相对路径, 提取正则, 说明) —— 版本号必须与全链一致
+_DOC_VERSION_TARGETS: list[tuple[str, str]] = [
+    (
+        ".claude/skills/imagefree-workflow/SKILL.md",
+        r"当前版本 v(\d+\.\d+\.\d+)",
+    ),
+]
+
+
+def test_dev_doc_version_not_drifted(version_sources: dict[str, str]) -> None:
+    """开发文档里声明的版本必须与全链一致（防 SKILL.md 式静默漂移）。
+
+    漂移时给出明确修复指引：手工改文档中的版本串，而非跑 sync_version
+    （后者不覆盖文档文件）。
+    """
+    expected = version_sources["api/main.py"]
+    drifted: list[str] = []
+    for rel, pattern in _DOC_VERSION_TARGETS:
+        p = ROOT / rel
+        if not p.exists():
+            continue  # 文档可选；缺失不判失败（与 OPTIONAL_TARGETS 语义一致）
+        m = re.search(pattern, p.read_text(encoding="utf-8"))
+        assert m, f"{rel} 中未匹配到版本声明（正则 {pattern!r}）——文档结构可能已改，请同步本测试"
+        found = m.group(1)
+        if found != expected:
+            drifted.append(f"{rel}: 文档写 {found}，全链为 {expected}")
+    assert not drifted, (
+        "开发文档版本漂移（sync_version.py 不覆盖文档，需手工修改）:\n  "
+        + "\n  ".join(drifted)
+        + "\n修复：把文档中的版本串改为全链版本；本测试有意不做自动改写。"
+    )

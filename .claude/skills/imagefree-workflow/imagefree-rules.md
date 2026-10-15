@@ -76,7 +76,7 @@ msg = get_error_message(ErrorCodes.QUEUE_FULL, lang="zh", timeout=60)
 
 ## 4. 测试要求
 
-- **覆盖率门槛 70%（CI 强制）**：CI 中 `--cov=api --cov-fail-under=70`。新代码块尽量覆盖；核心路径（校验、入队、重试、错误码）优先。
+- **覆盖率门槛 80%（CI 强制）**：`ci.yml:53` 与 `deploy.yml:30` 均为 `--cov=api --cov-fail-under=80`（v7.6 由 70 统一为 80，见 `.specify/specs/004-final-audit-v76/tasks.md:38`）。新代码块尽量覆盖；核心路径（校验、入队、重试、错误码）优先。
 - **TDD**：先写测试（RED）→ 最小实现（GREEN）→ 重构（IMPROVE）。
 - **测试结构 AAA**：Arrange → Act → Assert；命名用行为描述（`test_returns_empty_when_no_match`）。
 - **异步测试**：pyproject 已配 `asyncio_mode = auto`，测试函数直接 `async def test_...` 即可，无需手动 `asyncio.run`。

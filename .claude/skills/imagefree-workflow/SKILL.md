@@ -19,7 +19,7 @@ description: 听风AI imagefree_api 项目开发工作流指南。涉及本仓�
 - **智能体 DAG 编排 / MCP / 桌面版 / PWA** — 详见 README v21 小节
 
 技术栈：Python 3.11+ / FastAPI / uvicorn / SQLite(aiosqlite) / httpx / pydantic-v2 / React 19 + Vite 6 + TS / Vue3 landing。
-当前版本 v23.1.0（改动前先核对 pyproject.toml 实际版本，**版本全链一致性由 `tests/test_version_consistency.py` + `scripts/sync_version.py --check` 门禁**）。
+当前版本 v23.3.0（改动前先核对 pyproject.toml 实际版本，**版本全链一致性由 `tests/test_version_consistency.py` + `scripts/sync_version.py --check` 门禁**；注意门禁只覆盖 10 个代码/配置文件，**不含本 SKILL.md**，改版本时需手工同步此处——现已由 `test_dev_doc_version_not_drifted` 兜住）。
 
 > **v7.7.4+ 鉴权契约**（必读）：
 > - 生图 `/v1/generate*`、聊天 `/v1/chat/*`、`/v1/messages`：**公益开放不限 Key**（仅 per-IP 限速防刷）。
@@ -33,6 +33,21 @@ description: 听风AI imagefree_api 项目开发工作流指南。涉及本仓�
 > - health-report 采集降级：email_pool 源 import 走 run_in_executor+wait_for 限时（IF_SSE_HEARTBEAT_INTERVAL 心跳可配、IF_SSE_MAX_CONNECTIONS 连接上限）。
 
 线上演示：https://imagefree.hwhcie.bond （Azure，公益开放）
+
+> **⚠ CI 现状（2026-10-15 实测，动手前必读）**：GitHub Actions **已连续失败约一个月**——
+> 最近 100 次运行中 **CI 54 failure + 1 cancelled、Deploy 45 failure，成功 0 次**
+>（历史上 30 次 success 全在 2026-09-08 及更早）。**不要在"CI 是绿的"这个假设上做判断。**
+>
+> 最近一次 CI（sha `0c883c0`）逐 job：
+> - ✅ 版本一致性门禁 / ruff / 前端 E2E+a11y+perf+resp
+> - ❌ **后端单元测试**（ubuntu-latest，`exit code 1`；**Linux 上也失败**，故不是本机 Windows 问题）
+> - ❌ **前端构建门禁 →「Vitest 测试」**（DOM 泄漏，见 §4.1；2026-10-15 已修，**待推送复验**）
+>
+> 取 CI 真实失败原因的方法（`gh` CLI 缺失时）：
+> `curl --noproxy '*' --ssl-no-revoke https://api.github.com/repos/lza6/Aggregate-to-2api/actions/runs/<id>/jobs`
+> 再用 `check-runs/<job_id>/annotations` 拿失败消息。
+> **`--ssl-no-revoke` 必需**：本机 schannel 吊销检查离线，不加会报 `CRYPT_E_REVOCATION_OFFLINE`。
+> job 日志下载需 admin 权限（会 403）。
 
 ## 2. 代码结构说明
 
@@ -128,8 +143,8 @@ python -m pytest tests/ -q -m "not integration and not chaos and not slow"
 # 分批跑（推荐，规避宿主 kill + 断点续跑）
 ./.venv/Scripts/python.exe scripts/run_tests_batched.py --batch-size 12
 
-# 覆盖率（CI 门槛 70%）
-python -m pytest tests/ -q --cov=api --cov-report=term --cov-fail-under=70
+# 覆盖率（CI 门槛 80%，与 ci.yml / deploy.yml 一致）
+python -m pytest tests/ -q --cov=api --cov-report=term --cov-fail-under=80
 
 # 单文件
 python -m pytest tests/test_worker_auto_scale.py -q
@@ -163,11 +178,18 @@ python -m pytest tests/test_worker_auto_scale.py -q
 
 ```bash
 # 管理面板（React/Vitest）—— 28 files / 299 tests
-cd frontend && npm test
+# ⚠ 必须提高 node 堆：默认/512MB 时 worker 起不来（见下方"堆内存陷阱"）
+cd frontend && NODE_OPTIONS="--max-old-space-size=4096" npm test
 
 # 门户（Vue/Vitest）—— 2 files / 13 tests
 cd landing && npm test
 ```
+
+> **⚠⚠ 头号陷阱：`NODE_OPTIONS=--max-old-space-size=512` 会让前端套件完全跑不起来**
+> （2026-10-15 实证）。表现为 `[vitest-pool-runner]: Timeout waiting for worker to respond`
+> 或 `Worker exited unexpectedly`，Duration 60s、`no tests`。
+> 项目调优建议里的 **512 太小**；设成 `4096` 后 `frontend` 立刻 **28 files / 299 tests 全绿（139s）**。
+> **排查顺序：先怀疑堆内存，再怀疑路径，最后才怀疑机器负载。**
 
 > **⚠ vitest 在非 ASCII 路径下的坑（两个包都中招）**：本仓库位于 `Desktop/2api目录/...`。
 > vitest 4 的**隔离 worker** 在含非 ASCII 的路径下启动会 60s 超时
@@ -180,10 +202,16 @@ cd landing && npm test
 > - `frontend/vite.config.ts`：`isolate: false` + `pool: 'forks'` + `testTimeout/hookTimeout: 20000`
 > - `landing/vitest.config.js`：`isolate: false` + `pool: 'threads'`
 >
+> **⚠ `isolate: false` 必须配「显式 cleanup」——两者是配套的，改一方必须同时检查另一方。**
+> CI 实证（GitHub Actions run `38571665098` / `38569968598`）：多文件同时报
+> `TestingLibraryElementError: Found multiple elements with role "button"/"dialog"/"combobox"` ——
+> 根因是 `frontend/vite.config.ts` 注释**声称**"通过 `src/test/setup.ts` 的 beforeEach 清理"，
+> 而该文件**从未有任何清理逻辑**。修法：`setup.ts` 显式 `afterEach(() => cleanup())`。
+> `landing` **不需要**（每个用例显式 `wrapper.unmount()`，自管生命周期）。
+>
 > **注意**：关隔离后模块同进程加载，5s 默认超时不够（实测 setup 累计 177s、
 > environment 811s），故一并放宽 `testTimeout`。
-> `frontend` 用 `forks`（独立子进程各有独立堆，避开项目全局
-> `NODE_OPTIONS=--max-old-space-size=512` 挤压导致的 `Worker exited unexpectedly`）；
+> `frontend` 用 `forks`（独立子进程各有独立堆）；
 > **不要**写 `test.poolOptions`——vitest 4 已移除该字段（会打 DEPRECATED 警告并被忽略，
 > 让人误以为配置已生效）。
 >
@@ -191,7 +219,9 @@ cd landing && npm test
 > 当本机同时跑着大量其他 node/python 进程时会触发同样的
 > `Timeout waiting for worker to respond` / `no tests` —— 此时**换 pool 无效**
 > （threads 与 forks 都会失败），应先确认机器不饱和再重跑，不要误判成配置回归。
-> 判据：`tasklist | grep -c node.exe`，若数量异常（十几个）先排查来源。
+> 判据：用 `psutil` 按 CPU 排序列出 `python.exe`/`node.exe`，确认没有**遗留的长跑 pytest**
+> （实测曾有一个 `pytest tests/ ... --junitxml=data/full_junit.xml` 跑了 ~10 小时、占满 1 核）。
+> 注意区分：`D:\参考项目\...` 下的进程属**其他项目**，不要误杀。
 
 ### 4.2 移动端 / 视觉 E2E（本轮补齐真跑能力）
 
@@ -242,7 +272,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8100
 
 ### 部署前检查清单
 
-- [ ] `pytest tests/ -q --cov=api --cov-fail-under=70` 通过
+- [ ] `pytest tests/ -q --cov=api --cov-fail-under=80` 通过
 - [ ] `.env.example` 中新增的配置项已同步
 - [ ] 后端改动已用 `python scripts/sync_deploy.py` 同步到 `deploy/api/`
 - [ ] `docker compose build` 无报错（或至少 import 校验通过）
