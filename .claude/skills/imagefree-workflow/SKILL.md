@@ -19,7 +19,7 @@ description: 听风AI imagefree_api 项目开发工作流指南。涉及本仓�
 - **智能体 DAG 编排 / MCP / 桌面版 / PWA** — 详见 README v21 小节
 
 技术栈：Python 3.11+ / FastAPI / uvicorn / SQLite(aiosqlite) / httpx / pydantic-v2 / React 19 + Vite 6 + TS / Vue3 landing。
-当前版本 v23.3.0（改动前先核对 pyproject.toml 实际版本，**版本全链一致性由 `tests/test_version_consistency.py` + `scripts/sync_version.py --check` 门禁**；注意门禁只覆盖 10 个代码/配置文件，**不含本 SKILL.md**，改版本时需手工同步此处——现已由 `test_dev_doc_version_not_drifted` 兜住）。
+当前版本 v23.3.1（改动前先核对 pyproject.toml 实际版本，**版本全链一致性由 `tests/test_version_consistency.py` + `scripts/sync_version.py --check` 门禁**；注意门禁只覆盖 10 个代码/配置文件，**不含本 SKILL.md**，改版本时需手工同步此处——现已由 `test_dev_doc_version_not_drifted` 兜住）。
 
 > **v7.7.4+ 鉴权契约**（必读）：
 > - 生图 `/v1/generate*`、聊天 `/v1/chat/*`、`/v1/messages`：**公益开放不限 Key**（仅 per-IP 限速防刷）。
