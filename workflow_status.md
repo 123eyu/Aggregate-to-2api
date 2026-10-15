@@ -32,6 +32,9 @@
 | **R-5** | **`deploy/.env.example` 注释指向错误文件** | P2 | 注释称「改 UA 需改 `api/config/http.py`」，但那是**死副本**（`HTTPSettings.from_settings()` 无条件用 `s.user_agent` 覆盖）；20 处生产代码消费的是 `config.USER_AGENT`（源自 `settings_core.py:79`）。**照注释改，白改一场** | 注释重写：指明权威文件 + 4 处同步点 + 契约测试位置 | `TestEnvExampleSync` 2 passed 复验 |
 | **R-6** | **覆盖率门槛文档与 CI 不符** | **P1** | `ci.yml:53`/`deploy.yml:30` 是 `--cov-fail-under=80`，而 `SKILL.md`/`imagefree-rules.md` 写 **70**。**按文档自测通过 → 推 CI 意外失败** | 修 4 处（`.claude/skills/` 下权威副本；`.agents/` 未入库不动） | — |
 | **R-7** | **skill 文档版本漂移** | P2 | `SKILL.md:22` 写 v23.1.0，实际 v23.2.0（门禁只覆盖 10 个代码文件，**不含文档**） | 修正 + **新增漂移门禁测试** | `test_version_consistency.py::test_dev_doc_version_not_drifted`，**变异验证有判别力** |
+| **R-8** | **后台任务以非 CancelledError 终止时 `stop()` 冒泡，打断优雅关闭** | **P1** | 三处 `stop()` 都只捕 `CancelledError`，而 `await task` 会**重抛任务原始异常**。`ProviderProbeManager.stop()` 被 `lifespan.py:177` **直接 await** → 异常打断整个关机序列（DB flush / SSE 关闭 / worker 停止全部跳过） | 三处补 `except Exception` + `log.warning`（关闭路径必须容错） | 新增 `tests/test_shutdown_task_robustness.py` 7 用例；**三处变异同时摘掉 → 3 用例全红** |
+| **R-9** | **`test_honor` 首页断言缺前置条件守卫 → CI 稳定 404 误报** | **P1** | `GET /` 是 `main.py` 的**条件挂载**（`if _LANDING_DIR.exists()`），而后端 CI job **不构建前端** → `landing/dist` 不存在 → 挂载跳过 → 404。该测试无条件断言 200 | 加前置条件守卫，未构建时 skip 并写明原因（沿用 `test_openapi_contract.py` 既有模式） | 两条路径实跑：有 dist → 3 passed；移走 dist → 2 passed + 1 skipped（带明确理由） |
+| **R-10** | **`conftest.py` 的 DB 隔离被外部注入绕过** | **P1** | 原写法 `if "IF_DB_FILE" not in os.environ:` **信任外部注入**，CI 的 `IF_DB_FILE: "data/test.db"` 使该段整个跳过 → 测试落到共享文件库 → `sqlite3.OperationalError: database is locked`（CI junit 实证） | 改**无条件**指向临时库；调试用专用变量 `IF_TEST_DB_FILE` 显式指定 | 模拟 CI 注入 `IF_DB_FILE=data/ci_sim.db` → 28 passed 且该文件**未被创建**；6 文件回归 **84 passed** |
 
 ---
 
@@ -46,7 +49,7 @@
 | 最后一次 success | 2026-09-08 之前（30 次 success 全在 9-08 及更早） |
 | **结论** | **CI 已整体红了一个多月** |
 
-**最近一次 CI（run `38571665048`, sha `0c883c0`）逐 job 结果：**
+**最近一次 CI（run `38571665048`, sha `0c883c0`）逐 job 结果（本轮开工基线）：**
 
 | Job | 结果 | 说明 |
 |---|---|---|
@@ -57,7 +60,40 @@
 | **前端构建门禁 (tsc + vitest + build)** | ❌ **failure** | 失败步骤「Vitest 测试」→ `Found multiple elements ...`（即 R-3） |
 | Docker 构建验证 | skipped | |
 
-**后端 CI 失败的具体原因本轮未能取到**（job 日志需 admin 权限，annotations 只给 `exit code 1`）。**这是一个仍未闭环的项。**
+### CI 修复进展（逐次推送实测，全部经 GitHub API 核对）
+
+| 提交 | 后端 job | 前端构建门禁 | 说明 |
+|---|---|---|---|
+| `0c883c0`（基线） | ❌ 单元测试 | ❌ Vitest | 起点：2 个 job 红 |
+| `d1b8ae7` | ❌ 单元测试 | **✅** | **前端 DOM 泄漏修复生效** —— 本机复现不出（R-3「本地无法判别」），**CI 是唯一验证环境** |
+| `26929d6` | ❌ 单测（`database is locked` **已消失**，只剩 teardown） | ✅ | conftest DB 隔离修复生效 |
+| `f862ce6` | ⚠️ **单元测试 ✅**，改由「集成测试」步骤失败 | ✅ | **shutdown 容错修复生效**；集成步骤此前一直是 `[skip]`（被单测失败掩盖），修好第一层才暴露 |
+| `e55e8fb` | **✅ 全步骤通过**（单测 + 集成 + mock cf_solver） | ⚠️ Vitest 失败（**另一条 flake**） | **后端 job 转绿** |
+
+**后端 CI 的失败原因是逐层揭开的（前一层失败会 `[skip]` 掉后一层）：**
+
+1. **单元测试** → `tests/test_skill_sediment.py` 的 module-scope `client` fixture teardown，
+   真因是 **`api/provider_probe.py:62 stop()` 冒泡异常**（见 R-8），已修
+2. **集成测试** → `tests/integration/test_honor.py:34` 断言 `GET /` == 200 得到 404，
+   真因是 `landing/dist` 在后端 job 不存在（条件挂载不生效），已加前置条件守卫
+
+### 仍未闭环：前端 vitest 的一条 flake
+
+`e55e8fb` 上失败信息与之前的「重复元素」**不同**：
+
+```
+TestingLibraryElementError: Unable to find an element with the alt text: test prompt
+（DOM 显示 gallery-album 已渲染、计数为「2 张」，且只有一个根 div —— 说明 cleanup 有效）
+```
+
+`Gallery.test.tsx` 全部用例只 mock **1 项**，而 DOM 里的 `2 张` 与
+`GalleryAlbum.test.tsx:67`（渲染 2 项：橘猫/星球）吻合
+→ 判为 **`isolate:false` 下跨文件 DOM 残留的残余症状**（顺序/负载相关）。
+
+**未修复原因**：本机（Node 25）无法复现，且它在 `d1b8ae7`/`26929d6`/`f862ce6`
+三次 CI 运行中均为 ✅ —— 属 flake。**不在无法验证的前提下做投机修改**（那只会污染 diff）。
+后续若稳定复现，优先怀疑 `Gallery.test.tsx` 的 `vi.useFakeTimers()` 与
+`afterEach(cleanup)` 的执行顺序（假定时器期间 unmount 可能不完整）。
 
 ---
 

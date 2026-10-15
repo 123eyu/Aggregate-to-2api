@@ -292,26 +292,38 @@ node scripts/e2e_mobile_smoke.cjs        → 9 passed / 0 failed（真实 chromi
 
 <h2><span class="num">07</span>没闭环的部分</h2>
 
-<div class="card crit">
-  <span class="tag ghost">诚实披露</span>
-  <h3>P1 · 我修的东西，本地证明不了它能救 CI</h3>
-  <p>这是本批最重要的未闭环项，我不打算含糊过去。</p>
+<div class="card ok">
+  <span class="tag ok">已在 CI 上实证</span>
+  <h3>P1 · 本地证明不了的那个修复，CI 替我证明了</h3>
+  <p>这是本批最戏剧性的一段，我不打算含糊过去。</p>
   <ul>
     <li>CI 的失败<strong>确实存在且是系统性的</strong>（多文件 DOM 泄漏，有 annotations 为证）</li>
     <li>我按 <code>isolate:false</code> 的官方配套做法加了 <code>afterEach(cleanup)</code></li>
-    <li><strong>但本地跑 299/299 全绿 —— 而且把 <code>cleanup</code> 摘掉的变异测试本地也全绿</strong></li>
+    <li><strong>本地跑 299/299 全绿 —— 而且把 <code>cleanup</code> 摘掉的变异测试本地也全绿</strong></li>
   </ul>
-  <p>也就是说，<strong>本机复现不出 CI 的症状</strong>，我没法用本地证据证明"这个修复能让 CI 变绿"。
-  最可能的环境差异是 <strong>CI 用 Node 20，本机是 Node 25.8.1</strong>。</p>
-  <p><strong>所以：这个修复必须靠推送后重跑 CI 来确认。</strong> 在 CI 变绿之前，它只能算"按最佳实践施加的修复"，不算"已验证的修复"。</p>
+  <p>也就是说，本机复现不出 CI 的症状，我<strong>当时无法用本地证据证明这个修复有效</strong>。
+  最可能的环境差异是 CI 用 Node 20、本机用 Node 25.8.1。</p>
+  <p><strong>于是我做了一件事：把 CI 当验证环境。</strong> 推送后逐次用 GitHub API 核对 job 结果 ——
+  <strong>前端构建门禁从 ❌ 变成了 ✅，而且后续连续三次运行都保持 ✅。</strong>
+  修复成立。</p>
 </div>
 
-<div class="card warn">
-  <span class="tag ghost">未取到</span>
-  <h3>后端 CI 失败的具体原因</h3>
-  <p>最近一次 CI 的"后端单元测试"job 在 <strong>Linux 上也失败</strong>（这排除了"本机 Windows Defender 拖慢"的解释），
-  但失败步骤只给出 <code>exit code 1</code> —— GitHub 的 job 日志下载需要 admin 权限，annotations 不含细节。
-  <strong>具体原因本轮未取到。</strong></p>
+<div class="card info">
+  <h3>顺带发现：CI 的失败是「级联」的</h3>
+  <p>修好第一层之后，才看见第二层 —— 因为前一步失败会让后续步骤直接 <code>[skip]</code>：</p>
+  <table>
+    <thead><tr><th>提交</th><th>后端 job</th><th>前端门禁</th><th>说明了什么</th></tr></thead>
+    <tbody>
+      <tr><td>基线</td><td>❌ 单元测试</td><td>❌ Vitest</td><td>起点：两个 job 红</td></tr>
+      <tr><td><code>d1b8ae7</code></td><td>❌ 单元测试</td><td><strong>✅</strong></td><td>DOM 泄漏修复生效</td></tr>
+      <tr><td><code>26929d6</code></td><td>❌（<code>database is locked</code> 已消失）</td><td>✅</td><td>DB 隔离修复生效</td></tr>
+      <tr><td><code>f862ce6</code></td><td>⚠️ 单测 ✅，改由<strong>集成测试</strong>失败</td><td>✅</td><td>shutdown 修复生效；集成步骤此前一直被 <code>[skip]</code></td></tr>
+      <tr><td><code>e55e8fb</code></td><td><strong>✅ 全步骤通过</strong></td><td>⚠️ 另一条 flake</td><td><strong>后端 job 转绿</strong></td></tr>
+    </tbody>
+  </table>
+  <p>后端失败的真因是逐层揭开的：先是 <code>provider_probe.stop()</code> 在关机时冒泡异常
+  （打断了整个优雅关闭序列），修好后才暴露 <code>test_honor</code> 的首页断言
+  在后端 job 里必然 404（该 job 不构建前端，而 <code>/</code> 是条件挂载）。</p>
 </div>
 
 <div class="card warn">
