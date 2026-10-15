@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>听风AI · 2026-10-15 终局审计报告</title>
+<style>
+  :root{
+    --ink:#12151a; --ink-2:#2c333d; --muted:#6b7684; --line:#e3e7ee;
+    --bg:#fbfbfd; --card:#fff; --accent:#2f5bd7; --accent-soft:#eef2fd;
+    --warn:#b4690e; --warn-soft:#fdf5e6; --crit:#b3261e; --crit-soft:#fdecea;
+    --ok:#1f7a4d; --ok-soft:#e9f6ef;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px 120px}
+
+  header.hero{padding:72px 0 40px;border-bottom:1px solid var(--line);margin-bottom:48px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 16px}
+  h1{font-size:clamp(30px,5vw,44px);line-height:1.18;margin:0 0 20px;letter-spacing:-.02em;font-weight:700}
+  .lede{font-size:clamp(17px,2.2vw,19px);color:var(--ink-2);margin:0;max-width:64ch}
+  .meta{display:flex;flex-wrap:wrap;gap:22px;margin-top:28px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:600}
+
+  h2{font-size:clamp(21px,3vw,27px);margin:56px 0 18px;letter-spacing:-.01em;
+     padding-top:22px;border-top:1px solid var(--line)}
+  h2 .num{font-family:var(--mono);font-size:.62em;color:var(--accent);margin-right:12px;vertical-align:.12em}
+  h3{font-size:17px;margin:32px 0 10px;letter-spacing:-.005em}
+  p{margin:0 0 16px}
+  ul,ol{margin:0 0 16px;padding-left:22px}
+  li{margin:6px 0}
+  code{font-family:var(--mono);font-size:.875em;background:#f0f2f7;padding:2px 6px;
+    border-radius:5px;color:#333d4d;word-break:break-word}
+  pre{background:#12151a;color:#e6e9f0;padding:18px 20px;border-radius:11px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.62;margin:0 0 20px}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit}
+  .del{color:#ff8080}.ins{color:#7ee0a6}.cmt{color:#8b95a7}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:22px 24px;margin:0 0 18px}
+  .card.crit{border-left:3px solid var(--crit);background:var(--crit-soft)}
+  .card.warn{border-left:3px solid var(--warn);background:var(--warn-soft)}
+  .card.ok{border-left:3px solid var(--ok);background:var(--ok-soft)}
+  .card.info{border-left:3px solid var(--accent);background:var(--accent-soft)}
+  .card h3{margin-top:0}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+    padding:2px 9px;border-radius:999px;letter-spacing:.05em;margin-bottom:10px}
+  .tag.p0{background:var(--crit);color:#fff}
+  .tag.p1{background:#e8590c;color:#fff}
+  .tag.p2{background:#c9a227;color:#2b2100}
+  .tag.ok{background:var(--ok);color:#fff}
+  .tag.ghost{background:#e8ebf2;color:#495264}
+
+  table{width:100%;border-collapse:collapse;margin:0 0 22px;font-size:14.5px}
+  th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+     font-family:var(--mono);font-weight:600;background:#f6f7fa}
+  tbody tr:hover{background:#fafbfe}
+  td code{font-size:.85em}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:14px;margin:0 0 26px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:16px 18px}
+  .stat .n{font-family:var(--mono);font-size:27px;font-weight:700;line-height:1.1;letter-spacing:-.02em}
+  .stat .l{font-size:12.5px;color:var(--muted);margin-top:5px}
+  .stat.bad .n{color:var(--crit)}
+  .stat.good .n{color:var(--ok)}
+
+  blockquote{margin:0 0 18px;padding:14px 20px;border-left:3px solid var(--accent);
+    background:var(--accent-soft);border-radius:0 9px 9px 0;color:var(--ink-2)}
+  blockquote p:last-child{margin-bottom:0}
+
+  details{background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:16px 20px;margin:0 0 14px}
+  details[open]{padding-bottom:20px}
+  summary{cursor:pointer;font-weight:600;list-style:none;display:flex;gap:12px;align-items:flex-start}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--accent);font-size:15px;line-height:1.5;transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  summary .q{flex:1}
+  details .ans{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);color:var(--ink-2)}
+  details .ans p:last-child{margin-bottom:0}
+
+  .quiz-head{background:linear-gradient(135deg,#1b2540,#2f5bd7);color:#fff;
+    border-radius:15px;padding:28px 30px;margin:0 0 26px}
+  .quiz-head h2{border:none;padding:0;margin:0 0 10px;color:#fff}
+  .quiz-head p{margin:0;opacity:.9;font-size:15px}
+
+  .pill{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:6px;
+    background:#eef1f7;color:#495264;margin-right:6px}
+  footer{margin-top:64px;padding-top:26px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:13.5px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">终局闭环总审计 · 本地闭环批</p>
+  <h1>CI 红了一个月，<br>而真正的 bug 藏在没人看的地方</h1>
+  <p class="lede">
+    这一批不是"再修几个遗漏点"。起点是一句我一开始没敢相信的事实：
+    <strong>这个仓库的 CI 已经连续失败 100 次、整整一个月没有绿过</strong>。
+    报告记录我是怎么发现的、为什么差点修错东西、以及哪些事我<strong>没能闭环</strong>。
+  </p>
+  <div class="meta">
+    <span><b>日期</b> 2026-10-15</span>
+    <span><b>基线</b> v23.2.0 (79a5374)</span>
+    <span><b>真缺陷修复</b> 5 项</span>
+    <span><b>变异验证</b> 5 组</span>
+    <span><b>线上</b> 不可达（外部阻塞）</span>
+  </div>
+</header>
+
+<h2><span class="num">01</span>这一批的处境</h2>
+
+<p>我先说清楚起点，因为后面的判断都依赖它。</p>
+
+<div class="grid">
+  <div class="stat"><div class="n">462</div><div class="l">GitHub Actions 历史总运行数</div></div>
+  <div class="stat bad"><div class="n">0</div><div class="l">最近 100 次里成功的次数</div></div>
+  <div class="stat bad"><div class="n">~1 月</div><div class="l">CI 持续红的时间</div></div>
+  <div class="stat good"><div class="n">299</div><div class="l">前端 vitest 本地实测通过</div></div>
+</div>
+
+<p>另外两件事也必须在开头讲明：</p>
+
+<ul>
+  <li><strong>线上主机不可达。</strong> <code>imagefree.hwhcie.bond</code> DNS 能解析到 <code>20.204.27.154</code>，但 TCP <code>22/80/443/8100</code> <strong>全部超时</strong>。我同一时刻测了对照组（<code>github.com:443</code>、<code>pypi.org:443</code>、<code>8.8.8.8:53</code> 全通），<strong>排除本地网络问题</strong>。所以本批<strong>没有做任何线上部署</strong>。</li>
+  <li><strong>上一轮的"计划"已经闭环了。</strong> 你让我找的 <code>下一步改进指南.md</code> 在 2026-10-14 就被删除并提交（<code>f978520</code>），<code>docs/archived/</code> 现在是空目录。我没有假装记得什么不存在的东西。</li>
+</ul>
+
+<h2><span class="num">02</span>直觉：为什么"没崩"不等于"没问题"</h2>
+
+<p>这批里最反直觉的发现，是我<strong>连续三次用静态扫描下结论、连续三次全错</strong>：</p>
+
+<table>
+  <thead><tr><th>我的初判</th><th>实测真相</th></tr></thead>
+  <tbody>
+    <tr><td>"<code>import api.config</code> 卡住了"</td><td><strong>我的探针写错了</strong>：<code>print(s.if_host)</code> 抛异常导致管道挂起。<code>import api.config</code> 实际 7.19s，<code>import api.main</code> 35.86s，<strong>都正常完成</strong></td></tr>
+    <tr><td>"前端引用了 17 个后端不存在的路径"</td><td><strong>正则信号太脏</strong>（尾斜杠、模板片段、测试 fixture）。方法级实测后：<strong>31 个路径全部存在，0 断链</strong></td></tr>
+    <tr><td>"<code>/v1/gallery/zip</code> 返回 404，断链了"</td><td><strong>它是 POST 端点</strong>，我用 GET 探测当然 404</td></tr>
+  </tbody>
+</table>
+
+<blockquote>
+  <p>直觉结论：<strong>在这个仓库里，静态扫描的噪声大到会系统性误导判断。</strong>
+  只有"真跑一遍看输出"才算证据。这条已经写进 <code>.wolf/memory.md</code>，
+  避免下次重蹈覆辙。</p>
+</blockquote>
+
+<h2><span class="num">03</span>做了什么：五个真缺陷</h2>
+
+<div class="card crit">
+  <span class="tag p1">P1 · 静默失效</span>
+  <h3>定时清理循环每次都在中途抛异常，后半段从未执行</h3>
+  <p><code>api/bg_tasks.py</code> 的持久化队列清理写的是 <code>_engine._queue_db</code>，而 <code>_engine</code> 是第 43 行 <code>from .worker import engine</code> 导入的<strong>模块</strong>；<code>_queue_db</code> 却是 <code>Engine</code> 的<strong>实例属性</strong>。</p>
+  <pre><code>$ python -c "import api.worker.engine as m; print(hasattr(m,'_queue_db'))"
+False        <span class="cmt"># 模块上没有 → 每次必抛 AttributeError</span></code></pre>
+  <p>异常被第 142 行 <code>except Exception</code> 吞成 warning。但它抛在 <code>try</code> 块的<strong>中部</strong>，
+  所以第 72 行之后的<strong>所有清理逻辑（DAG TTL、告警评估）每次都被跳过</strong>。</p>
+  <p><strong>修法</strong>：改从 <code>api.meta</code> 取 Engine 单例（与 lifespan 注入的是同一个实例）+ 防御式 <code>getattr</code>。</p>
+</div>
+
+<div class="card crit">
+  <span class="tag p1">P1 · 整条流水线</span>
+  <h3>CI 前端门禁持续红：测试套件存在系统性 DOM 泄漏</h3>
+  <p>通过 GitHub API 取到失败 job 的真实 annotations —— 不是单个用例的问题，而是<strong>多个文件同时报错</strong>：</p>
+  <pre><code>CostsPage.test.tsx      → Found multiple elements with role "button" and name "按模型"
+CommandPalette.test.tsx → Found multiple elements with role "combobox"
+                        → Found multiple elements with role "dialog"
+多个文件                 → Found multiple elements with role "button" and name "确认"/"提交"</code></pre>
+  <p>根因很讽刺：<code>frontend/vite.config.ts</code> 设了 <code>isolate: false</code>，
+  并在注释里<strong>声称</strong>「测试间通过 <code>src/test/setup.ts</code> 的 beforeEach 清理」——
+  但那个文件<strong>从来没有任何清理逻辑</strong>。注释描述了一个不存在的行为。</p>
+  <p><strong>修法</strong>：在 <code>setup.ts</code> 显式注册 <code>afterEach(cleanup)</code>（vitest 对 <code>isolate:false</code> 的官方配套做法），并把配置注释改成与实现一致、标注"配套关系"。</p>
+</div>
+
+<div class="card warn">
+  <span class="tag p2">P2 · 静默降级</span>
+  <h3>多订阅者场景下，谁先断开就清掉所有人的回放缓冲</h3>
+  <p><code>sse_events.py:246</code> 和 <code>ws_events.py:125</code> 的连接收尾都无条件调 <code>clear_task</code>。
+  同一任务被 2 个客户端订阅时（多标签页、或重连旧连接未断），先断开的一方会清掉<strong>共享</strong>的事件缓冲，
+  另一方之后用 <code>Last-Event-ID</code> 重连<strong>拿不到任何历史，而且不报错</strong>。</p>
+  <p><strong>修法</strong>：新增 <code>clear_task_if_idle</code>，把"判空"和"清理"放进<strong>同一把锁</strong>（避免 check-then-act 竞态），两处调用点改用它。</p>
+</div>
+
+<div class="card warn">
+  <span class="tag p2">P2 · 契约盲区</span>
+  <h3>环境变量映射的校验有个结构性漏洞</h3>
+  <p><code>test_config_validate.py</code> 的既有双向校验用 <strong>regex 扫源码文本</strong>找 <code>validation_alias="IF_X"</code> 字面量。
+  盲区在于：<strong>没有 alias 的字段根本不进集合</strong> —— 于是"字段存在、但 env 永远读不到"这类缺陷对它完全不可见。</p>
+  <p>实证：<code>Settings.user_agent</code> 是 202 个字段里<strong>唯一漏挂 alias</strong> 的。</p>
+  <p><strong>修法</strong>：新增基于运行时 <code>model_fields</code> 反射的契约测试 + <code>NO_ENV_BY_DESIGN</code> 显式登记表。
+  新增字段若忘记挂 alias，测试立刻红，强制作者做显式决策。</p>
+</div>
+
+<div class="card warn">
+  <span class="tag p1">P1 · 文档说谎</span>
+  <h3>覆盖率门槛文档写 70，CI 实际卡 80</h3>
+  <p><code>ci.yml:53</code> 与 <code>deploy.yml:30</code> 都是 <code>--cov-fail-under=80</code>，
+  而开发文档（<code>SKILL.md</code>、<code>imagefree-rules.md</code>）写的是 <strong>70%</strong>。</p>
+  <p>危害很具体：<strong>开发者按文档自测 70% 通过，推上去撞 80% 意外失败</strong>。
+  根源是 v7.6 把门槛从 70 统一到 80，文档没跟上。</p>
+</div>
+
+<h2><span class="num">04</span>更重要的：我差点修错的东西</h2>
+
+<p>审计子代理报了一条"P1"：<code>.env</code> 里的 <code>IF_WORKERS=10</code> 被静默覆盖成 48，
+建议改用 <code>model_fields_set</code> 修。</p>
+
+<p>我按惯例自己复现了一遍，结果<strong>把它否掉了</strong>：</p>
+
+<pre><code><span class="cmt"># 字段的库默认值：</span>
+workers=10   if_workers_max=16   token_pool_size=6   max_queue=2000
+<span class="cmt"># .env 里写的：</span>
+IF_WORKERS=10  IF_WORKERS_MAX=16  IF_TOKEN_POOL_SIZE=6  IF_MAX_QUEUE=2000
+<span class="cmt">#                ↑ 完全就是默认值本身</span>
+
+<span class="cmt"># 而 .env 根本没被读取：</span>
+settings_core.py  model_config → env_file = None
+全仓 grep load_dotenv          → 0 命中
+start.ps1:75      &amp; $py -m uvicorn api.main:app ...   <span class="cmt"># 不加载 .env</span></code></pre>
+
+<p>真相是：<strong><code>.env</code> 压根不会被读</strong>，而不是"读取后被覆盖"。
+哨兵逻辑本身是<strong>正确的</strong> —— 我用真实环境变量验证过（<code>IF_WORKERS=7</code> → <code>workers=7</code> ✓）。
+生产走 docker <code>env_file:</code> / systemd <code>EnvironmentFile=</code> 时会注入 <code>os.environ</code>，工作正常。</p>
+
+<div class="card info">
+  <h3>如果我当时直接"修"了会怎样</h3>
+  <p>我会改掉一段本来正确的哨兵逻辑，换来一个<strong>看起来专业、实际无用的 diff</strong>，
+  并且顺手把线上并发从 48 掉到 10 —— 而这种行为变更<strong>根本解决不了任何真问题</strong>。</p>
+  <p>这类"伪造工作量"是本批刻意避免的。同类判定还有 4 项，
+  包括"生产模板只列 42/201 个配置项"（正常设计，且实测<strong>零幽灵键</strong>）
+  和"三处 <code>except TimeoutError: pass</code>"（断言本就在 try 块外，判别力完整）。</p>
+</div>
+
+<h2><span class="num">05</span>证据：每条修复都配了"会失败的测试"</h2>
+
+<p>修完不等于对。每条修复我都做<strong>变异测试</strong>——把修复改回去，看测试是否<strong>真的会红</strong>。
+这一步抓出了我自己的一个伪测试：</p>
+
+<table>
+  <thead><tr><th>修复</th><th>回归锁</th><th>变异验证</th></tr></thead>
+  <tbody>
+    <tr><td>env 映射契约</td><td><code>TestEnvMappingContract</code> 5 用例</td><td>✅ 移除豁免 → 精确报 <code>user_agent(alias=None)</code></td></tr>
+    <tr><td>文档版本漂移门禁</td><td><code>test_dev_doc_version_not_drifted</code></td><td>✅ 改回 23.1.0 → 报"文档写 23.1.0，全链为 23.2.0"</td></tr>
+    <tr><td><code>bg_tasks</code> 取引擎</td><td>3 用例（AST 级）</td><td>✅ 裸属性访问 / 回退旧写法 两种变异均被抓</td></tr>
+    <tr><td>SSE 多订阅缓冲</td><td>5 用例（行为 3 + 调用点 2）</td><td>⚠️ <strong>首次失败</strong> → 补调用点契约后 ✅</td></tr>
+  </tbody>
+</table>
+
+<div class="card crit">
+  <span class="tag p1">自我纠错</span>
+  <h3>我的 SSE 测试第一版是伪测试</h3>
+  <p>第一版只断言 <code>hub.clear_task_if_idle()</code> <strong>方法本身</strong>的行为。
+  变异测试把<strong>调用点</strong>改回无条件 <code>clear_task</code> 时，测试<strong>照样全绿</strong> ——
+  因为修复被回退也检测不到。</p>
+  <p>补了两条"调用点契约"（AST 检查 <code>task_events_generator</code> 与 <code>ws_events</code> 用的是判空版）后，
+  变异立刻被抓：<code>assert 'clear_task_if_idle' in {'clear_task'}</code>。</p>
+</div>
+
+<h2><span class="num">06</span>验证结果（真实命令 + 真实输出）</h2>
+
+<pre><code>ruff check api/ tests/ scripts/          → All checks passed!
+pytest tests/test_version_consistency.py → 5 passed
+pytest tests/test_config_validate.py     → 25 passed
+pytest tests/test_db_retention.py        → 16 passed
+pytest tests/test_sse_events_unit.py     → 32 passed
+pytest 受影响集合 5 文件                  → 83 passed, 1 skipped
+
+<span class="cmt"># 前端（关键：必须提高 node 堆，否则 worker 起不来）</span>
+NODE_OPTIONS=--max-old-space-size=4096 npx vitest run
+  → Test Files 28 passed (28) | Tests 299 passed (299)
+npx tsc -b                               → exit 0
+
+<span class="cmt"># 契约与端到端</span>
+python scripts/probe_route_methods.py    → 前端 31 路径全部存在，0 断链
+12 端点冒烟                               → /v1/livez ~ /metrics 全 200
+node scripts/serve_static.cjs + curl     → / 200, /admin 307, /admin/tasks 200
+node scripts/e2e_mobile_smoke.cjs        → 9 passed / 0 failed（真实 chromium）</code></pre>
+
+<div class="card info">
+  <h3>顺带挖出一个环境陷阱</h3>
+  <p>本地前端测试套件此前<strong>完全跑不起来</strong>（<code>Timeout waiting for worker to respond</code> / <code>Worker exited unexpectedly</code>）。
+  根因是项目调优建议里的 <code>NODE_OPTIONS=--max-old-space-size=512</code> ——
+  这个值太小，vitest worker 起不来。改成 <code>4096</code> 后立刻 299/299 通过。</p>
+</div>
+
+<h2><span class="num">07</span>没闭环的部分</h2>
+
+<div class="card crit">
+  <span class="tag ghost">诚实披露</span>
+  <h3>P1 · 我修的东西，本地证明不了它能救 CI</h3>
+  <p>这是本批最重要的未闭环项，我不打算含糊过去。</p>
+  <ul>
+    <li>CI 的失败<strong>确实存在且是系统性的</strong>（多文件 DOM 泄漏，有 annotations 为证）</li>
+    <li>我按 <code>isolate:false</code> 的官方配套做法加了 <code>afterEach(cleanup)</code></li>
+    <li><strong>但本地跑 299/299 全绿 —— 而且把 <code>cleanup</code> 摘掉的变异测试本地也全绿</strong></li>
+  </ul>
+  <p>也就是说，<strong>本机复现不出 CI 的症状</strong>，我没法用本地证据证明"这个修复能让 CI 变绿"。
+  最可能的环境差异是 <strong>CI 用 Node 20，本机是 Node 25.8.1</strong>。</p>
+  <p><strong>所以：这个修复必须靠推送后重跑 CI 来确认。</strong> 在 CI 变绿之前，它只能算"按最佳实践施加的修复"，不算"已验证的修复"。</p>
+</div>
+
+<div class="card warn">
+  <span class="tag ghost">未取到</span>
+  <h3>后端 CI 失败的具体原因</h3>
+  <p>最近一次 CI 的"后端单元测试"job 在 <strong>Linux 上也失败</strong>（这排除了"本机 Windows Defender 拖慢"的解释），
+  但失败步骤只给出 <code>exit code 1</code> —— GitHub 的 job 日志下载需要 admin 权限，annotations 不含细节。
+  <strong>具体原因本轮未取到。</strong></p>
+</div>
+
+<div class="card warn">
+  <span class="tag ghost">有意不改</span>
+  <h3>三项安全项：报告但不擅自动手</h3>
+  <table>
+    <thead><tr><th>项</th><th>为什么不改</th></tr></thead>
+    <tbody>
+      <tr><td><code>/v1/logs</code> + <code>/v1/logs/ws</code> 匿名可读实时日志</td>
+          <td>实测确可匿名读（含内部端点探测记录与 IP）。但代码 docstring 明写"v7.7.8 公益只读开放"，属<strong>有意的公益设计</strong>。收口会改变对外契约并可能影响管理前端 → <strong>生产策略决策，需你拍板</strong></td></tr>
+      <tr><td><code>public_keymask()</code> 回显 Key 前 12 字符</td>
+          <td>当前 <code>IF_API_KEYS</code> 为空故未触发；一旦配置，29 字符 Key 会暴露 41% 前缀</td></tr>
+      <tr><td><code>POST /v1/agent/memory/observe</code> 未授权写入</td>
+          <td>匿名可写 agent 记忆（投毒面）。改鉴权需先确认前端调用方是否携带 Key → 需先调查再动</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2><span class="num">08</span>这一批的元教训</h2>
+
+<ol>
+  <li><strong>静态扫描会骗人，实测不会。</strong> 三次误判全出自"看代码下结论"。方法级 curl、真跑测试、变异验证 —— 这三样才是证据。</li>
+  <li><strong>"没崩"和"没问题"是两回事。</strong> 1790 次压测请求 0 个 5xx，但同期暴露出"清理循环每次中途抛异常"。存活证明不等于健康证明。</li>
+  <li><strong>注释会说谎，而且没人发现。</strong> 这一批抓到的核心问题里，有三个是"文档/注释描述了一个不存在的实现"（<code>setup.ts</code> 的清理、<code>.env.example</code> 的修改指引、覆盖率门槛 70 vs 80）。<strong>注释漂移是会直接导致 CI 红的。</strong></li>
+  <li><strong>拒绝伪造工作量。</strong> 审计报了 8 条"问题"，其中 4 条经实测是伪问题。把伪问题修掉比不修更糟 —— 它污染 diff、掩盖真问题、还可能改动生产行为。</li>
+</ol>
+
+<div class="quiz-head">
+  <h2 style="margin-top:0"><span class="num" style="color:#9db4f0">09</span>测验</h2>
+  <p>10 道题，覆盖本批的每个关键判断。展开看答案。全部答对才说明你真的读懂了这批变更。</p>
+</div>
+
+<details><summary><span class="q">Q1 · <code>bg_tasks.py</code> 那个 P1 为什么"比看起来更严重"？</span></summary>
+<div class="ans"><p>因为它不止让 <code>queue.db</code> 永远不被清理。异常抛在 <code>try</code> 块<strong>中部</strong>，
+被外层 <code>except Exception</code> 吞掉后直接跳到末尾 —— 于是<strong>它后面的所有清理逻辑（DAG run TTL 清理、告警评估 evaluate）每一次都被跳过</strong>。
+一个看起来只影响队列的 bug，实际让整个定时维护循环的后半段长期失效。</p></div></details>
+
+<details><summary><span class="q">Q2 · 为什么给 <code>bg_tasks</code> 的回归测试必须用 AST，而不是字符串匹配？</span></summary>
+<div class="ans"><p>因为字符串匹配会被改名绕过。第一版我断言"源码里不出现 <code>_engine._queue_db</code>"，
+但变异成 <code>_engine_inst._queue_db</code> 时<strong>测试照样通过</strong>（字符串对不上），
+而且断言本身还被我自己修复处的解释性注释误伤。
+改用 AST 定位"对 <code>_queue_db</code> 的属性访问节点"后，两种变异（裸属性访问、回退旧写法）都会被抓。</p></div></details>
+
+<details><summary><span class="q">Q3 · CI 前端失败的真根因是什么？为什么说"注释说谎"？</span></summary>
+<div class="ans"><p>根因是 <code>vite.config.ts</code> 设了 <code>isolate: false</code>，但<strong>没有配套的 DOM 清理</strong>，
+导致测试之间组件残留、<code>getByRole</code> 命中重复元素。"注释说谎"指的是：配置注释<strong>声称</strong>
+"测试间通过 <code>src/test/setup.ts</code> 的 beforeEach 清理"，而 <code>setup.ts</code> 里<strong>根本没有任何清理逻辑</strong> ——
+它只做了导入 jest-dom 和补 localStorage 两件事。注释描述了一个不存在的实现。</p></div></details>
+
+<details><summary><span class="q">Q4 · 我为什么<strong>没有</strong>去修"<code>.env</code> 的 IF_WORKERS 被覆盖"那条 P1？</span></summary>
+<div class="ans"><p>因为复现后发现它是<strong>误诊</strong>。三个事实：<br>
+① 那些字段的库默认值恰好就是 <code>.env</code> 里写的值（10/16/6/2000），所以之前"<code>.env</code> 生效"的观测其实是默认值；<br>
+② <code>Settings.model_config</code> 里 <code>env_file=None</code>，全仓无 <code>load_dotenv</code> 调用，<code>start.ps1</code> 直接起 uvicorn 不加载 —— <strong><code>.env</code> 根本不被读取</strong>；<br>
+③ 哨兵逻辑本身正确：真实环境变量 <code>IF_WORKERS=7</code> 实测生效为 7。<br>
+所以正确的动作是<strong>不改</strong>。改了会得到一个无用 diff，还会把线上并发从 48 变成 10。</p></div></details>
+
+<details><summary><span class="q">Q5 · SSE 那个修复，我的第一版测试为什么是伪测试？怎么补救的？</span></summary>
+<div class="ans"><p>第一版测试直接调 <code>hub.clear_task_if_idle(...)</code>，验证的是<strong>方法本身</strong>。
+变异测试把<strong>调用点</strong>（<code>task_events_generator</code> 的 finally）改回无条件 <code>clear_task</code> 时，
+测试照样全绿 —— 也就是说<strong>修复被回退也检测不到</strong>。<br>
+补救：补两条"调用点契约"测试，用 AST 断言生成器里调的是 <code>clear_task_if_idle</code>、且<strong>不</strong>直接调 <code>clear_task</code>；
+再加一条扫 <code>ws_events</code> 的非注释代码。之后变异立刻被抓。</p></div></details>
+
+<details><summary><span class="q">Q6 · env 映射契约的"结构性盲区"具体盲在哪？</span></summary>
+<div class="ans"><p>既有校验用 <strong>regex 扫源码文本</strong>找 <code>validation_alias="IF_X"</code> 字面量来做双向比对。
+盲区是：<strong>没有 alias 的字段根本不会进入那个集合</strong>，所以"字段存在、但环境变量永远读不到"
+这类缺陷对它<strong>完全不可见</strong>。实证就是 <code>Settings.user_agent</code> —— 202 个字段里唯一漏挂 alias 的。<br>
+新契约改用运行时 <code>model_fields</code> 反射，并要求无 alias 的字段必须登记进 <code>NO_ENV_BY_DESIGN</code> 并写明理由。</p></div></details>
+
+<details><summary><span class="q">Q7 · 覆盖率门槛 70 vs 80 的失实，实际会怎么伤人？</span></summary>
+<div class="ans"><p>开发者按文档（70%）自测通过 → 推上去撞 CI 的 80% → <strong>意外失败</strong>，
+而且会误以为是自己的代码有问题，而不是文档过时。根源是 v7.6 把门槛统一到 80，文档没同步。
+本批修了 4 处（只改 <code>.claude/skills/</code> 下的权威副本；<code>.agents/</code> 是未入库的旧镜像，不动）。</p></div></details>
+
+<details><summary><span class="q">Q8 · 为什么说"本地 299 passed"<strong>不能</strong>证明前端修复有效？</span></summary>
+<div class="ans"><p>因为变异测试给了反证：<strong>把我加的 <code>afterEach(cleanup)</code> 摘掉，本地跑仍然 28 文件 / 299 用例全绿</strong>。
+说明本机环境下 RTL 的自动清理是生效的、复现不出 CI 的症状 —— 根因机制在 CI 上成立，但本机无法判别。
+最可能的环境差异是 <strong>CI 用 Node 20、本机用 Node 25.8.1</strong>。<br>
+结论：这个修复必须靠推送后重跑 CI 确认，在那之前只能算"按最佳实践施加"，不算"已验证"。</p></div></details>
+
+<details><summary><span class="q">Q9 · 本机前端测试套件此前跑不起来，真正的原因是什么？</span></summary>
+<div class="ans"><p><code>NODE_OPTIONS=--max-old-space-size=512</code> —— 这个项目调优建议里的值<strong>太小</strong>，
+vitest worker 起不来（先是 <code>Timeout waiting for worker to respond</code>，后是 <code>Worker exited unexpectedly</code>）。
+改成 <code>4096</code> 后立刻跑出 28 files / 299 tests 全绿。<br>
+教训：文档里的"性能调优"参数，可能正在阻塞测试基建本身。</p></div></details>
+
+<details><summary><span class="q">Q10 · 这批最反直觉的一条元教训是什么？</span></summary>
+<div class="ans"><p>可能是这一条：<strong>文档/注释漂移会直接导致 CI 变红。</strong><br>
+本批五个核心问题里，有三个本质是"有人写下了与实现不符的描述"：<code>setup.ts</code> 声称的清理、
+<code>.env.example</code> 指错的修改文件、覆盖率门槛 70 vs 80。
+它们都不是"代码写错了"，而是"说的话和做的事不一致" —— 而后者更难被发现，因为没有人会去验证一条注释。</p></div></details>
+
+<footer>
+  <p><strong>听风AI · imagefree-2ai</strong> · 2026-10-15 终局审计批 · 基线 v23.2.0</p>
+  <p>事实台账见 <code>workflow_status.md</code>；可复用的坑与契约见 <code>.wolf/memory.md</code> 与
+  <code>.claude/skills/imagefree-workflow/</code>。</p>
+  <p>本报告只记录<strong>实际观察到的事实</strong>。所有"已验证"均附可复现命令；所有未闭环项均已标注原因。</p>
+</footer>
+
+</div>
+</body>
+</html>
