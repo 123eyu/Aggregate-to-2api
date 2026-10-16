@@ -352,17 +352,14 @@ class DBQueriesMixin:
             params.append(f"%{search}%")
         where_clause = " WHERE " + " AND ".join(where)
         conn = await self._get_read_conn()
-        total_cursor = await conn.execute(
-            f"SELECT COUNT(*) FROM requests{where_clause}", params
-        )
+        total_cursor = await conn.execute(f"SELECT COUNT(*) FROM requests{where_clause}", params)
         total_row = await total_cursor.fetchone()
         total = int(total_row[0]) if total_row is not None else 0
         page = max(1, page)
         page_size = min(max(1, page_size), 200)
         cols = ", ".join(self._GALLERY_COLS)
         data_cursor = await conn.execute(
-            f"SELECT {cols} FROM requests{where_clause}"
-            " ORDER BY finished_at DESC LIMIT ? OFFSET ?",
+            f"SELECT {cols} FROM requests{where_clause} ORDER BY finished_at DESC LIMIT ? OFFSET ?",
             (*params, page_size, (page - 1) * page_size),
         )
         rows = await data_cursor.fetchall()
@@ -433,7 +430,11 @@ class DBQueriesMixin:
             " SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors, "
             " AVG(CASE WHEN status='completed' AND duration_sec IS NOT NULL"
             "         THEN duration_sec END) AS avg_duration"
-            " FROM requests WHERE status != 'archived'"
+            # 2026-10-16 修：冷态排除不能只写 archived —— 软删（deleted，见 gallery_soft_delete）
+            # 同样是冷态。原先只排 archived 时，同一响应里 `total`（COUNT(*)）含已删任务、
+            # 而 `images`/`errors`（CASE WHEN status=...）天然不含 → 分子已排除、分母未排，
+            # **成功率与平均时长被算低**（实测：3 条完成里软删 1 条 → total 仍 3 / images 已 2）。
+            " FROM requests WHERE status NOT IN ('archived', 'deleted')"
         )
         row = await cursor.fetchone()
         if row is None:
@@ -459,7 +460,7 @@ class DBQueriesMixin:
             "SELECT day, COUNT(*) AS total, "
             " SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS images, "
             " SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors"
-            " FROM requests WHERE day >= ? AND status != 'archived'"
+            " FROM requests WHERE day >= ? AND status NOT IN ('archived', 'deleted')"
             " GROUP BY day ORDER BY day",
             (cutoff,),
         )
@@ -484,7 +485,7 @@ class DBQueriesMixin:
             "SELECT month, COUNT(*) AS total, "
             " SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS images, "
             " SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors"
-            " FROM requests WHERE month >= ? AND status != 'archived'"
+            " FROM requests WHERE month >= ? AND status NOT IN ('archived', 'deleted')"
             " GROUP BY month ORDER BY month",
             (cutoff,),
         )

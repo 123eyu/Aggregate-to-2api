@@ -52,7 +52,15 @@ async def gdb():
         pass
 
 
-async def _seed(gdb, task_id: str, prompt: str, *, status: str = "completed", image_url: str | None = "mock://img.png", model: str = "imagefree/default"):
+async def _seed(
+    gdb,
+    task_id: str,
+    prompt: str,
+    *,
+    status: str = "completed",
+    image_url: str | None = "mock://img.png",
+    model: str = "imagefree/default",
+):
     """直接插一行画廊任务（base64 走生产 data-URI 落盘路径，供 zip 测试）。"""
     from api.base64_store import save_base64
 
@@ -195,7 +203,16 @@ async def test_gallery_delete_endpoint(seeded_gdb):
 
     from api.errors import AppError
 
-    req = Request({"type": "http", "method": "DELETE", "url": "http://test/gallery/t1", "headers": [], "query_string": b"", "client": ("127.0.0.1", 1)})
+    req = Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "url": "http://test/gallery/t1",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 1),
+        }
+    )
     resp = await gallery_routes.gallery_delete("t1", request=req, password=None)
     assert resp["deleted"] is True and resp["soft"] is True
     # 软删后缓存失效（M2）：gallery:{limit} 缓存不应再含 t1（此处仅断言不抛异常即可，缓存细节见集成）
@@ -236,11 +253,93 @@ async def test_gallery_whitelist_excludes_non_terminal(tmp_db):
         await tmp_db._enqueue_write(
             "INSERT INTO requests (id, prompt, status, image_url, image_mime, created_at, finished_at, duration_sec, model)"
             " VALUES (?,?,?,?,?,?,?,0,'imagefree/default')",
-            (sid, f"prompt-{sid}", st, "mock://img.png", "image/png",
-             datetime.now(UTC).timestamp(), datetime.now(UTC).timestamp()),
+            (
+                sid,
+                f"prompt-{sid}",
+                st,
+                "mock://img.png",
+                "image/png",
+                datetime.now(UTC).timestamp(),
+                datetime.now(UTC).timestamp(),
+            ),
         )
         await tmp_db.flush()
     items, total = await tmp_db.gallery_list(page=1, page_size=50)
     ids = {it["id"] for it in items}
     for sid in ("pend-1", "proc-1", "queued-1"):
         assert sid not in ids, f"非终态 {sid} 不应出现在默认画廊"
+
+
+# ── 2026-10-16 回归锁：软删必须从统计「分母」排除 ─────────────────────────
+#
+# 真缺陷（本机实测复现）：`stats_overview` / `stats_daily` / `stats_monthly` 的 WHERE
+# 原为 `status != 'archived'` —— 只排冷归档，**未排软删（deleted）**。而同一响应里
+# `total` 用 `COUNT(*)`（含已删），`images`/`errors` 用 `CASE WHEN status=...`
+# （天然不含已删）→ **分子已排除、分母未排** → 成功率与平均时长被算低。
+#
+# 实测（3 条 completed，软删其中 1 条）：
+#   软删前 total_requests=3 total_images=3
+#   软删后 total_requests=3 total_images=2   ← 分母未降
+#
+# 修法：三处改为 `status NOT IN ('archived', 'deleted')`。
+# **语义边界**：`pending`/`processing` **仍计入 total**（请求已发生、只是尚未出图），
+# 故 total > images 属正常，不是缺陷 —— 本组用例同时锁死这一点。
+
+
+@pytest.mark.asyncio
+async def test_stats_exclude_soft_deleted_from_both_numerator_and_denominator(seeded_gdb):
+    """软删的任务不得出现在统计分母里；pending 仍应计入（两条语义一起锁）。"""
+    ov = await seeded_gdb.stats_overview()
+    # seeded_gdb: t1/t2/t3=completed, t4=deleted, t5=pending
+    # → total 应含 completed(3) + pending(1) = 4，**不含** deleted(t4)
+    assert ov["total_requests"] == 4, f"软删未从分母排除：{ov}"
+    assert ov["total_images"] == 3, ov
+    assert ov["total_errors"] == 0, ov
+
+
+@pytest.mark.asyncio
+async def test_stats_daily_and_monthly_exclude_soft_deleted(tmp_db):
+    """daily/monthly 同样必须排除软删。
+
+    注两点（初版用例都踩了）：
+    1. **不用 `seeded_gdb`** —— 它的 `_seed` 写死 `created_at=1000.0`（1970 年），
+       落在任何 `days`/`months` 窗口之外；
+    2. **走生产路径 `create_request`** —— `day`/`month` 是它的派生列
+       （由 `time.time()` 算出），裸 INSERT 不填这两列会被 `day >= ?` 过滤掉。
+    """
+    for tid in ("d1", "d2", "d3"):
+        await tmp_db.create_request(tid, "p", "1:1", False, "txt")
+        await tmp_db.mark_finished(tid, "completed", "mock://i.png", None, 1.0)
+    await tmp_db.flush()
+
+    d_before = await tmp_db.stats_daily(days=2)
+    m_before = await tmp_db.stats_monthly(months=2)
+    assert sum(r["total"] for r in d_before) == 3, d_before
+    assert sum(r["total"] for r in m_before) == 3, m_before
+
+    await tmp_db.gallery_soft_delete("d1")
+    await tmp_db.flush()
+
+    d_after = await tmp_db.stats_daily(days=2)
+    m_after = await tmp_db.stats_monthly(months=2)
+    assert sum(r["total"] for r in d_after) == 2, f"daily 分母含已删：{d_after}"
+    assert sum(r["images"] for r in d_after) == 2, d_after
+    assert sum(r["total"] for r in m_after) == 2, f"monthly 分母含已删：{m_after}"
+    assert sum(r["images"] for r in m_after) == 2, m_after
+
+
+@pytest.mark.asyncio
+async def test_stats_denominator_drops_after_runtime_soft_delete(seeded_gdb):
+    """运行时软删一条 completed 后，分母必须同步下降（原缺陷的直接断言）。"""
+    before = await seeded_gdb.stats_overview()
+    ok = await seeded_gdb.gallery_soft_delete("t1")
+    assert ok is True
+    await seeded_gdb.flush()
+    after = await seeded_gdb.stats_overview()
+
+    assert after["total_requests"] == before["total_requests"] - 1, (
+        f"软删后分母未下降：{before['total_requests']} → {after['total_requests']}"
+    )
+    assert after["total_images"] == before["total_images"] - 1
+    # 分母与分子的差值应保持不变（pending 的那 1 条）
+    assert after["total_requests"] - after["total_images"] == before["total_requests"] - before["total_images"]

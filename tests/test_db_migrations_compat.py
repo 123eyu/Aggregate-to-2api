@@ -46,7 +46,17 @@ def test_db_public_method_signatures_unchanged() -> None:
     """关键公开方法签名（含参数名）不得变——保护调用方。"""
     sig = inspect.signature(DB.create_request)
     params = list(sig.parameters)
-    assert params == ["self", "task_id", "prompt", "aspect_ratio", "download", "type_", "model", "client_ip", "user_agent"]
+    assert params == [
+        "self",
+        "task_id",
+        "prompt",
+        "aspect_ratio",
+        "download",
+        "type_",
+        "model",
+        "client_ip",
+        "user_agent",
+    ]
 
     sig2 = inspect.signature(DB.claim_idempotency)
     assert list(sig2.parameters) == ["self", "key", "task_id"]
@@ -142,3 +152,72 @@ async def test_db_end_to_end_smoke(tmp_path, monkeypatch) -> None:
 
     await db.close()
     config.reset_settings()
+
+
+# ── 2026-10-17 回归锁：并发初始化必须幂等（TOCTOU 竞态）─────────────────────
+#
+# 真缺陷：`_apply_request_migrations` 里 `PRAGMA table_info` 查列 → `ALTER TABLE ADD COLUMN`
+# 之间是**非原子的 read-then-write**。两个进程/线程同时对**同一个全新空库**初始化时，
+# 双方都读到「无此列」，各自 ALTER → 后者抛 `duplicate column name`，
+# 异常经 lifespan 冒泡 → **该 worker 起不来**（多 worker / 多副本 / 并行 fixture 场景）。
+#
+# 本组用**真线程**并发（协程会排队，复现不出；实测线程版才稳定触发）。
+# 双向对照（8 线程 × 1 轮，同一台机）：
+#   修复前（原写法）→ 失败 2：`duplicate column name: client_ip` / `: type`
+#   修复后（本代码）→ 失败 0
+# 故 3 轮 × 8 线程在修复后稳定通过，且**足以在回归时抓到**（原写法单轮命中率约 25%）。
+
+
+def _init_once(path: str, barrier, out: list[str], tag: str) -> None:
+    """在独立线程 + 独立连接上跑一次建表+补列迁移。"""
+    import asyncio
+
+    import aiosqlite
+
+    from api.db.migrations import _apply_request_migrations, _create_requests_table
+
+    async def go() -> None:
+        conn = await aiosqlite.connect(path, timeout=15, isolation_level=None)
+        try:
+            barrier.wait()  # 线程级同步：尽量同时冲进迁移
+            await _create_requests_table(conn)
+            await _apply_request_migrations(conn)
+            out.append(f"{tag}:OK")
+        except Exception as e:  # noqa: BLE001 — 任何异常都算失败，正是本测试要抓的
+            out.append(f"{tag}:{type(e).__name__}:{e}")
+        finally:
+            await conn.close()
+
+    asyncio.run(go())
+
+
+def test_concurrent_schema_init_is_idempotent() -> None:
+    """并发（真线程）对全新空库初始化，不得出现 duplicate column name。"""
+    import os
+    import tempfile
+    import threading
+
+    failures: list[str] = []
+    rounds = 3
+    workers = 8
+    for _ in range(rounds):
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        os.unlink(path)  # 全新空库（竞态只在空库上触发）
+        try:
+            barrier = threading.Barrier(workers)
+            out: list[str] = []
+            threads = [threading.Thread(target=_init_once, args=(path, barrier, out, f"t{i}")) for i in range(workers)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+            failures += [o for o in out if not o.endswith(":OK")]
+        finally:
+            for suffix in ("", "-wal", "-shm"):
+                try:
+                    os.unlink(path + suffix)
+                except OSError:
+                    pass
+
+    assert not failures, f"并发初始化非幂等（{rounds} 轮 × {workers} 线程）：{failures[:6]}"

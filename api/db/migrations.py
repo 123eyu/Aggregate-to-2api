@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 
 import aiosqlite
 
@@ -150,11 +151,23 @@ async def _apply_request_migrations(conn: aiosqlite.Connection) -> None:
         ("trace_id", "TEXT DEFAULT ''"),
     ):
         if col not in cols:
-            await conn.execute(f"ALTER TABLE requests ADD COLUMN {col} {ddl}")
+            try:
+                await conn.execute(f"ALTER TABLE requests ADD COLUMN {col} {ddl}")
+            except sqlite3.OperationalError as e:
+                # 2026-10-17 修：`PRAGMA table_info` 与 `ALTER` 之间是**非原子的
+                # read-then-write**（TOCTOU）。两个进程/协程同时对**同一个全新空库**初始化时，
+                # 双方都读到「无此列」，各自 ALTER，后者必抛 `duplicate column name`。
+                # 本循环的唯一目的就是「让这列存在」——若它已存在，目的已达成，忽略即可。
+                # 否则异常会经 lifespan 冒泡，导致该进程起不来（多 worker / 多副本 / 并行 fixture 场景）。
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                log.debug("requests.%s 已由并发初始化补齐，跳过", col)
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_created_status ON requests(created_at, status)")
     # v23 SQL 审计（N2）索引缺口补齐——全部 IF NOT EXISTS 幂等，纯增量不锁业务
     # queries.py:409 stats_overview 全表聚合（/metrics 每次裸扫）→ (status,duration_sec,created_at) 覆盖
-    await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_status_dur ON requests(status, duration_sec, created_at)")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_requests_status_dur ON requests(status, duration_sec, created_at)"
+    )
     # queries.py:436-478 stats_daily/monthly GROUP BY day/month 全扫+临时分组
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_day ON requests(day, status)")
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_month ON requests(month, status)")
