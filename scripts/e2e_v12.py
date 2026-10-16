@@ -116,7 +116,7 @@ def main() -> int:
         # 标签陈旧且 `sync_version.py` **改不到它**（其 E2E_PATTERN 是 `"(\d+\.\d+\.\d+)"`，
         # 只匹配**独立成串**的版本字面量，标签里的版本嵌在句子中间故不命中）。
         # 改为引用同一个独立字面量：既可断言又可读，且能随 sync_version 一起更新。
-        _expected = "23.3.2"
+        _expected = "23.3.3"
         check(f"2 openapi version=={_expected}", ver == _expected, f"got {ver}")
 
         # 3-4. skills 可发现性
@@ -133,7 +133,7 @@ def main() -> int:
 
         # 5-7. MCP
         r = client.post("/v1/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
-        ok5 = r.status_code == 200 and r.json()["result"]["serverInfo"]["version"] == "23.3.2"
+        ok5 = r.status_code == 200 and r.json()["result"]["serverInfo"]["version"] == "23.3.3"
         check("5 mcp initialize", ok5)
         r = client.post("/v1/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         tools = {t["name"] for t in r.json()["result"]["tools"]}
