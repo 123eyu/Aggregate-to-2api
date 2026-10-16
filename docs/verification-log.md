@@ -735,6 +735,67 @@ curl -sSL --noproxy '*' --ssl-no-revoke -H "Authorization: Bearer $TOK"   "https
 | 2026-10-16 | **真实 chromium E2E**：`node scripts/e2e_mobile_smoke.cjs` | ✅ **9 passed / 0 failed**（landing 4 + admin 5，375px，截图落盘） | 真实浏览器，非 jsdom |
 | 2026-10-16 | **SSE 帧内容实证**（建任务 → 订阅 `/v1/tasks/{id}/events`） | ✅ 帧内**确实携带** `status_detail`（`queued`/`solving`/`error`）与 `progress`（5/30） | **验证了进度条修复的前提**：SSE 有精确值、而 `GET /v1/tasks/{id}` 的 `TaskInfo` 无 → 轮询确实在降级覆盖 |
 
+
+
+### 2026-10-17 · CI flake 根治 + 域名引用清理
+
+| 日期 | 范围 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-10-17 | **根治 CI 上 `test_ip_blocklist` 的 flake** | ✅ 已修（确定性复现 → 修复 → CI success） | 见下「根因」 |
+| 2026-10-17 | **清除指向已退役域名 `imagefree.tingfengai.art` 的行为性引用** | ✅ 已修 | 见下「域名」 |
+| 2026-10-17 | CI run `38976132637`（`31c9cd8`） | ✅ **success** | 前端门禁 + 后端单测 + ruff + 版本门禁全绿 |
+
+#### 根因：在途写跨越了 DB 路径切换（TOCTOU）
+
+`tests/test_ip_blocklist.py` 的 `blocklist_store` fixture 就地改共享单例的
+`_path` / `_initialized` 做每用例隔离。其 docstring **声称**「同时尝试等待在途
+`_auto_block_ip` 后台任务」—— **代码里没有任何等待**（"注释说谎"又一次）。
+
+    add_or_update 的 init_schema() 读 _initialized、_get_conn() 读 _path，
+    两者不是同一次读取且中间隔着写锁 await：
+      写锁被占（另一笔写在途）→ 在途任务卡在 acquire()
+      → 此刻 fixture 翻路径：_path=B（全新空库）、_initialized=False
+      → 放行 → _get_conn() 用 B → INSERT → **no such table: ip_blocklist**
+
+**确定性复现**（非碰运气，已实跑）：占住 `_write_lock` → 起任务 → 让它越过
+`init_schema` 卡在锁上 → 翻路径 → 放行 → 报错与 CI junit **逐字一致**。
+时序稍差时症状为 `database is locked` —— **CI 上两种症状都出现过，本是同一 TOCTOU 的两个落点**。
+
+**修法**：① `api/background.py` 新增 `await_pending(timeout)`（该模块此前只有
+`spawn`/`pending_count`，**缺"排空"入口**，所以调用方想等也做不到）；
+② fixture 换路径**前后各等一次**在途任务；③ docstring 改成描述实际所做的事。
+
+**残留（已在 store 内记录，未加固）**：`IPBlocklistStore` 自身 TOCTOU 仍在，
+但**生产不受影响**（`_path` 在 import 期定死）。若将来支持运行期切库，必须先加固该类
+（单次快照 `_path` + 在同**一连接**上确保表存在）。
+
+#### 域名：`imagefree.tingfengai.art` 是**已退役**的旧腾讯云部署
+
+**权威依据在仓库自身**：`deploy/README.deploy.md:3-6` 明写该域名属「旧腾讯云 Docker 部署」，
+**当前生产**是 `https://imagefree.hwhcie.bond`（Azure + systemd）；项目 `CLAUDE.md` 同述。
+故不是域名分叉待拍板，而是**行为性引用指向了死域名**。
+
+已修（按影响面）：`api/geo_ip.py`（**生成的代理订阅链接**，且原为硬编码）、
+`landing` 的用户可见 curl 示例 ×2 组件、`README.md` 的调用方示例、
+`deploy/.env.production.example` 的 **CORS 白名单**、`landing/index.html`(6) /
+`sitemap.xml`(3) / `robots.txt`(1) 的 SEO 资产、`ApiGuide.tsx` 回退 base、`block_abuser.ps1` 默认 base。
+
+顺带**消除硬编码**：新增 `IF_PUBLIC_BASE_URL`（`IF_BASE_URL` 是**上游** imagefree.net，
+不能复用）。`settings_core` 加字段 + 取址 helper（懒导入、去尾斜杠、失败有兜底）
++ 两个 env 模板同步 → **契约测试自动把关**（`TestEnvExampleSync` 双向一致 +
+`TestEnvMappingContract` 无 alias 必登记）→ 25 passed。
+
+**有意不改**：`landing/public/release/*` 与 `docs/releases/archive/*`、`docs/reports/*`、
+`docs/prd/*`、`docs/research/security-audit-v23.md` —— 这些是**历史记录**
+（含「线上实锤（匿名 curl 旧域名）」等**当时确实发生**的验证），改写会伪造历史。
+
+#### 本轮**判定为"不做"**的设计项（附理由，避免下次重复评估）
+
+| 项 | 判定 |
+|---|---|
+| `requests.status` 无 `CHECK` 约束 | **不做**：加约束需**表重建**（破坏性迁移），且当前**无实际缺陷** —— 状态值全部由代码写入、有白名单校验。收益 < 风险 |
+| 删任务无级联清理（base64/幂等键/DLQ/向量） | **不做**：① base64 孤儿由 `clean_base64_files(TTL)` 按 mtime 兜底；② **幂等键指向已删任务**这条是唯一"用户可见"的，但 `IF_IDEMPOTENCY_ENABLED` **默认 `False`** → 默认配置下不可能发生；③ 向量孤儿已由 `/v1/gallery/similar` 的过滤兜住（本批修）。属**设计权衡**而非缺陷 |
+
 ### 仍未闭环（v23.3.2 结束时）
 
 - **进度条刷新后只剩粗粒度阶段**：属**精度限制而非错误**（status_detail/progress 从未持久化）。
