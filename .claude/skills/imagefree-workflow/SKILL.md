@@ -105,7 +105,7 @@ imagefree-2ai/
 │   │                           #        Accounts / Providers / Health / Logs / Security /
 │   │                           #        Slow / DLQ / Costs / Ecosystem / Agent / ApiGuide
 │   ├── components/             # Layout / StatCard / Gallery / BarChart / CommandPalette 等
-│   └── test/                   # vitest 单测（28 文件 / 299 用例）
+│   └── test/                   # vitest 单测（28 文件 / 300 用例）
 ├── landing/                    # Vue3 公开落地页（Vite）—— 挂载于 /
 │   ├── src/                    # App.vue + components/ + composables/ + lib/ + styles/ + test/
 │   └── dist/                   # 构建产物（.gitignore；**缺它则 `/` 返回 404**，见 §4）

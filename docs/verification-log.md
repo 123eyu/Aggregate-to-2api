@@ -684,13 +684,33 @@ curl -sSL --noproxy '*' --ssl-no-revoke -H "Authorization: Bearer $TOK"   "https
    `pytest tests/ ... --junitxml=data/full_junit.xml` 占满 1 核）。
    注意区分：`D:\参考项目\...` 下的进程属**其他项目**，不要误杀
 
-### v23.3.2 续（2026-10-16）—— **CI 首次全绿**
+### v23.3.2 续（2026-10-16）—— CI **首次出现 success**（但**未**稳定转绿）
+
+> ⚠ **本标题原写「CI 首次全绿」，属过度宣称。** 独立审查（2026-10-16）用 Actions API + junit
+> 产物核出：**同一份代码一红一绿**，且**写「首次全绿」的那个提交自己就是红的**。
+> 已据实更正为「首次出现 success」。以下为实测运行序列：
+
+| 时间 | 提交 | 结论 | 说明 |
+|---|---|---|---|
+| 2026-10-15T19:02 | `81209703` | failure | 修 conftest 之前 |
+| 2026-10-16T10:25 | `19718b59` | **success** | **本仓库自 2026-09-08 以来第一次 success** |
+| 2026-10-16T11:04 | `023490d3` | **failure** | **= 写「CI 首次全绿」的那次提交**；失败步骤「单元测试」，junit 实证：`sqlite3.OperationalError: **no such table: ip_blocklist**` |
+| 2026-10-16T11:36 | `6c2d12db` | success | **零代码差异**（只改了 `.wolf/buglog.json`） |
+| 2026-10-16T16:58 | `d4da44e0` | success | 文档提交 |
+
+**结论：后端测试套件存在残留 flake，未闭环。** 落点 `tests/test_ip_blocklist.py` 的 fixture
+（它**就地改共享单例的私有属性** `store._path` / `store._initialized` 做每用例隔离 ——
+违反项目「不可变优先」，并与后台异步封禁写 `_auto_block_ip` 竞态）。
+症状有两种：`database is locked`（连接争锁）与 `no such table: ip_blocklist`
+（建表落在 A 文件、写入落到 B 文件）。
+**归因（避免误伤）**：**非本批引入** —— 本批那两个提交只动版本号与文档。
 
 | 日期 | 范围 | 结果 | 备注 |
 |------|------|------|------|
-| 2026-10-16 | **前端 flaky 根因根治**：`isolate:false` 导致同一 worker 内多文件共享模块实例，而 `vi.mock` 按文件注册 → 后跑文件的组件闭包仍指向上个文件遗留的 mock 实例。强制同 worker 连跑实测：`GalleryAlbum→Gallery` 时 Gallery 4 用例全红、反向时 GalleryAlbum 7 用例全红（全仓库唯一「同一组件+同一 vi.mock 目标」组合） | ✅ 已修 | `isolate:false`→`true`，**配套 `maxWorkers: 2`**（isolate:true 下每个文件重启 worker 环境，默认并发会 28 errors/0 tests 全部启动超时；降到 2 后 28 files/300 passed） |
+| 2026-10-16 | **前端 flaky 根因根治**：`isolate:false` 导致同一 worker 内多文件共享模块实例，而 `vi.mock` 按文件注册 → 后跑文件的组件闭包仍指向上个文件遗留的 mock 实例。强制同 worker 连跑实测：`GalleryAlbum→Gallery` 时 Gallery 4 用例全红、反向时 GalleryAlbum 7 用例全红（全仓库唯一「同一组件+同一 vi.mock 目标」组合） | ✅ 已修（**CI 侧已实证**：前端门禁在后续多次运行中通过） | `isolate:false`→`true`，**配套 `maxWorkers: 2`**（isolate:true 下每个文件重启 worker 环境，默认并发会 28 errors/0 tests 全部启动超时；降到 2 后 28 files/300 passed） |
 | 2026-10-16 | **进度条降级覆盖（用户可见缺陷）**：`useTaskProgress` 轮询每 tick 无条件 `apply(mapStatusToDetail(t.status))`，而 `GET /v1/tasks/{id}`（`TaskInfo`）不含 status_detail/progress → processing 映射 `{null,null}` 把 SSE 刚写入的 `solving/30` 抹回「运行中」= **进度条每 2 秒跳一次** | ✅ 已修 | 加「映射为空且状态未变则保留精确值」；**变异验证**：摘掉修复 → 新用例单独失败、原 4 条照过（1 failed/4 passed） |
-| 2026-10-16 | **CI 决定性验证**：GitHub Actions run `38887120926` | ✅ **success（6/6 job）** | **本仓库自 2026-09-08 以来第一次完整跑绿**；此前从 2026-09-28 起连续 11 次 failure |
+| 2026-10-17 | **上述修复自身引入新缺陷（独立审查 R1）**：降级守卫在 **SSE 断线时未复位** → 轮询粗粒度映射被永久抑制 → 徽章**冻结**在最后一个精确阶段且无「已失联」提示 | ✅ 已修 + 回归锁 | `handleDisconnect` 里 `lastAppliedStatus = null`；**变异验证**：摘掉该行 → 精确只有新用例失败（1 failed/5 passed） |
+| 2026-10-16 | CI run `38887120926`（`19718b5`） | ✅ success（6/6 job） | **首次 success**；但见上表，后续同代码提交仍失败 → **不宣称「已稳定转绿」** |
 
 ### v23.3.2 交付口径与本地真实 E2E 验收（2026-10-16）
 
@@ -750,13 +770,29 @@ npx vitest run --no-file-parallelism
 **为什么 CI 才偶发**：文件→worker 的分配是「哪个 worker 先空闲谁取下一个文件」的竞争；4 vCPU
 runner 上两个 Gallery 文件偶尔落进同一 worker → 后跑者必红；本机 16 vCPU 几乎不同组，故长期复现不到。
 
-**修复**：`frontend/vite.config.ts` → `isolate: true`（注释内写明机制；老注释里「非 ASCII 路径下
-隔离 worker 启动 60s 超时」的绕行 2026-10-16 复测**未复现** —— 全量并行 28 文件 2m28s 正常跑完，
-且单个 worker 串行/并行两种模式均可用）。**未削弱任何断言、未改测试文件**。
+**修复**：`frontend/vite.config.ts` → `isolate: true` **+ 配套 `maxWorkers: 2`**。
+**未削弱任何断言、未改测试文件**。
+
+> ⚠ **更正（2026-10-17，独立审查发现）**：本段原写「老注释里『非 ASCII 路径下隔离 worker
+> 启动 60s 超时』的绕行 2026-10-16 复测**未复现**」—— **该句失实**。准确表述是：
+> - `isolate:false` + 默认并发 → 跑得起来（但有跨文件 mock 串味，即本 bug）
+> - `isolate:true` + **默认并发** → **28 errors / 0 tests**（全部 worker 启动超时，套件完全不可用）
+> - `isolate:true` + **`maxWorkers:2`** → 28 files / 300 passed
+>
+> 即**那个超时依然存在**，只是被 `maxWorkers:2` 压住了 —— **两处设置是配套的，单改一处会破**。
+> 该失实陈述源自代理记录，我已在 `.wolf/buglog.json` bug-025 更正，
+> 但**当时漏改了本文件与 `vite.config.ts`**（后者亦已更正）——
+> 属本批自己反复列为「文字与实现不符」的**同类问题**，应当引以为戒。
 
 **验证（修复后）**
 - 同组连跑两种顺序 → `11 passed`、`11 passed`（修复前：同两条命令只过 4/11 与 4/11，分别红 4 例、7 例）
-- `npm run test` 连续 3 次 → 每次 `28 passed / 299 passed`，exit 0（94s / 95s / 92s）
+- **口径澄清**：本段原记「`npm run test` 连续 3 次 → 每次 299 passed，94s / 95s / 92s」——
+  **该耗时与 `vite.config.ts` 所记的 488s 互斥**（同一配置不可能同时是 94s 与 488s，差 5×），
+  且两者都未标注 NODE_OPTIONS / 并发 / 平台。**本文件保留该数字但标注为「口径不明、不可复现」**；
+  可信的锚点是独立审查核出的 **CI 侧 vitest 步骤实测 15s**（Actions API 的
+  started_at→completed_at，ubuntu-latest / Node 20 / 读同一份配置）与
+  本机（Windows / Node 25 / maxWorkers:2）**488s**。平台与路径不同，**不可相互对比**。
+- **`maxWorkers:2` 的必要性仅在本机成立**（默认并发下套件完全跑不起来）；CI 实测 15s，未受该限流拖累。
 - `npx tsc -b` → 0 error
 
 **顺带闭环：`Tasks.test.tsx` 并行 flake（预存，非本轮引入）**
