@@ -54,53 +54,76 @@ description: 听风AI imagefree_api 项目开发工作流指南。涉及本仓�
 ```
 imagefree-2ai/
 ├── api/                        # 后端源码（核心）
-│   ├── main.py                 # FastAPI 入口 + 全部端点（/v1/*）
-│   ├── config/                 # 分组配置包（pydantic-settings，IF_* 前缀；settings=Settings()+get_settings()/reset_settings() 工厂）
+│   ├── main.py                 # 应用组装入口（<300 行：仅挂载路由/中间件/前端/生命周期）
+│   ├── routes/                 # 路由层（端点定义在此，不在 main.py）
+│   │   ├── health / tasks / generate / chat / admin/ / gallery / security
+│   │   ├── agent_dag*（DAG 编排）/ agent_human / agent_skills_admin / mcp_admin
+│   │   └── ecosystem / ppt / video
+│   ├── config/                 # 分组配置包（pydantic-settings，IF_* 前缀；get_settings()/reset_settings() 工厂）
 │   ├── worker/                 # 高并发引擎：优先级队列 + worker 池 + token 预取 + 健康探测
 │   ├── db/                     # SQLite 持久化（aiosqlite）+ 0.2s 批量写合并 + 连接池 + ip_blocklist_store
 │   ├── errors.py               # 分层错误码（CATEGORY.NNN）+ AppError
-│   ├── providers/              # 多提供商适配器
+│   ├── providers/              # 多提供商适配器（**nanobanana/falai 已下线**）
 │   │   ├── base.py             # Provider 抽象基类 + ModelSpec + GenerationResult
 │   │   ├── registry.py         # 提供商注册、路由、健康检查
 │   │   ├── imagefree.py        # imagefree.net（Turnstile token 认证）
 │   │   ├── aifreeforever.py    # 每 IP 每日限额 → 每请求轮换代理
-│   │   └── nanobanana.py       # better-auth cookie + 号池，每日签到
+│   │   ├── tryingopen/         # 对话 / 智能体上游（包）
+│   │   └── video_mock.py / video_provider.py
 │   ├── turnstile_client.py     # cf_solver 客户端（:8001）
 │   ├── solver_guard.py         # 熔断器 + 求解质量统计
 │   ├── proxy_pool.py           # 住宅代理池 + 冷却策略
 │   ├── free_proxy_fetcher.py   # 免费代理池抓取
-│   ├── account_pool.py         # 号池管理（账号多路复用）
-│   ├── registerer.py           # 自动注册（nanobanana；邮箱池 9 源已拆 api/email_sources/）
-│   ├── email_pool.py           # 邮箱池
-│   ├── cache.py                # LRU 缓存
-│   ├── retry_policy.py         # 重试策略（指数退避 + jitter）
-│   ├── base64_store.py         # base64 文件缓存（图片与 DB 分离）
-│   ├── semaphore_manager.py    # 并发信号量管理
+│   ├── account_pool/           # 号池管理（**包**：_base/_constants/borrow/engine/fsm/pool/store 等）
+│   ├── registerer/             # 自动注册（**包**：cf_solve/email_verify/flow/types）
+│   ├── email_pool.py           # 邮箱池（单文件；多源适配器在同级 email_sources/）
+│   ├── cache.py / retry_policy.py / base64_store.py / semaphore_manager.py
 │   ├── audit.py / alerting.py / telemetry.py / metrics_ext.py / log_ws.py / log_buffer.py
-│   ├── health.py / context.py / cache_warmup.py
-│   └── docs.html               # 中文仪表盘首页（后端直出）
-├── frontend/src/               # React 仪表盘（Vite + TS）
-│   ├── App.tsx / main.tsx / api.ts
-│   ├── pages/                  # Dashboard / Tasks / Providers / Accounts / DLQ / Logs
-│   └── components/             # StatCard / ProviderCard / Gallery / BarChart / Layout
-├── tests/                      # 300+ 测试用例
+│   ├── health.py / health_report.py / context.py / cache_warmup.py
+│   ├── sse_events.py / ws_events.py   # 每任务 SSE 事件流 / WS 广播
+│   ├── dispatch.py / dispatch_edit.py # 路由调度 / 图生图双层互斥
+│   ├── adaptive_router.py      # MAB-EWMA 路由引擎（+ 熔断）
+│   ├── lifespan.py             # 9 阶段优雅关闭
+│   └── static/                 # 后端直出的静态页（honor.html 捐赠页 / slow.html / terms.html）
+├── frontend/src/               # React 管理面板（Vite + TS）—— 挂载于 /admin
+│   ├── App.tsx / main.tsx
+│   ├── api/                    # API 封装**包**（core/misc/tasks/chat/agent/providers/security/index）
+│   ├── pages/                  # 15 页：Dashboard / Tasks / Generate / ChatPlayground /
+│   │                           #        Accounts / Providers / Health / Logs / Security /
+│   │                           #        Slow / DLQ / Costs / Ecosystem / Agent / ApiGuide
+│   ├── components/             # Layout / StatCard / Gallery / BarChart / CommandPalette 等
+│   └── test/                   # vitest 单测（28 文件 / 299 用例）
+├── landing/                    # Vue3 公开落地页（Vite）—— 挂载于 /
+│   ├── src/                    # App.vue + components/ + composables/ + lib/ + styles/ + test/
+│   └── dist/                   # 构建产物（.gitignore；**缺它则 `/` 返回 404**，见 §4）
+├── tests/                      # 182 顶层 + 15 integration + 2 chaos + 3 performance
 │   ├── test_*.py               # 单元测试（顶层）
 │   ├── integration/            # 集成测试（全流程/熔断/DLQ/编辑流/限流/超时）
-│   ├── chaos/                  # 故障注入（test_fault_injection.py）
-│   └── performance/            # 压测（test_benchmark / test_stress）
-├── scripts/                    # 运维/验证脚本
-│   ├── e2e_validate.py         # E2E 验证（--mode mock / real）
-│   ├── sync_deploy.py          # 同步代码到 deploy/ 目录
-│   ├── inject_accounts.py / loadtest.py / verify_chain.py / 等
+│   ├── chaos/                  # 故障注入
+│   └── performance/            # 压测（benchmark / stress）
+├── scripts/                    # 41 个运维/验证脚本
+│   ├── e2e_validate.py / e2e_mobile_smoke.cjs / serve_static.cjs
+│   ├── probe_stress.py / probe_route_methods.py / probe_federation.py
+│   ├── run_tests_batched.py / sync_version.py / create_release.py
+│   └── backup_db.py / restore_db.py / restore_drill.py / loadtest.py
 ├── deploy/                     # 生产部署资产
-│   ├── docker-compose.yml      # cfsolver(8001) + api(8100)
-│   ├── Dockerfile.api / Dockerfile.cfsolver
-│   └── api/                    # 部署用后端副本（由 api/ 同步）
-├── data/                       # 运行时数据（*.db、imgs/、.deploy/）
-├── cf_solver/                  # Turnstile 求解服务（boterdrop_wrapper.py）
+│   ├── docker-compose.yml / Dockerfile.api / Dockerfile.cfsolver
+│   ├── cf_solver/              # Turnstile 求解服务（入口 boterdrop_wrapper.py，端口 8001）
+│   ├── systemd/                # 线上原生部署（**线上无 Docker**）
+│   ├── grafana/ / prometheus.yml / litestream.yml
+│   └── .env.example / .env.production.example
+├── data/                       # 运行时数据（*.db、imgs/、logs/）
+├── docs/                       # SOP / PROVIDER_INTEGRATION_GUIDE / verification-log（验证台账）
+│                               #   / releases/（含 archive/）/ research/ / verification-artifacts/
 ├── start.ps1 / start.bat       # Windows 一键启动
-└── pyproject.toml              # pytest 配置（asyncio_mode=auto）
+└── pyproject.toml              # pytest/ruff/mypy 配置
 ```
+
+> **注**：上树已按 2026-10-16 的真实文件系统逐条核对过（原先存在 8 处失实路径：
+> `api/providers/nanobanana.py`、`api/account_pool.py`、`api/registerer.py`、
+> `api/docs.html`、`frontend/src/api.ts`、`scripts/inject_accounts.py`、
+> `deploy/api/`、根 `cf_solver/` —— 均已在树上改正）。
+> **改动目录结构时请同步更新本节**，否则下个会话会照错路径找文件。
 
 ### 代码流关键路径
 
@@ -159,9 +182,20 @@ imagefree-2ai/
 
 ### 常见改动模式
 
-- **新增提供商**：新建 `api/providers/<name>.py` 继承 `Provider` 基类 → 在 `registry.py` `bootstrap()` 注册 → 加模型规格 → 写 `tests/test_providers.py` 用例 → 同步到 `deploy/api/`。
-- **新增端点**：在 `api/main.py` 添加 handler + `GenerateRequest`/`EditRequest` 模型 → 校验走 `errors.py` 的 `AppError`/`error_response` → 补测试。
-- **新增配置项**：在 `api/config/__init__.py` Settings 类（或对应分组子模块）加字段（`IF_*` 前缀 validation_alias）→ `deploy/.env.example` 同步（test_config_validate 会拦截缺失！）→ `Settings.validate()` 校验。
+- **新增提供商**：新建 `api/providers/<name>.py` 继承 `Provider` 基类 → 在 `api/providers/registry.py` 的 `bootstrap()` 注册 + 加模型前缀映射 → 加模型规格 → 写 `tests/test_providers*.py` 用例。
+  （**旧的「同步到 `deploy/api/`」已废弃** —— 该目录不存在了。docker 构建直接 COPY `api/`。）
+- **新增端点**：端点**定义在 `api/routes/<domain>.py`**（不是 `api/main.py`！）——
+  该模块内 `router = APIRouter()` + `@router.get/post(...)` → 若是**新模块**，在
+  `api/routes/__init__.py` 加一行 `api_router.include_router(<mod>.router)` →
+  请求/响应模型放 `api/models.py` → 校验走 `errors.py` 的 `AppError`/`error_response` → 补测试。
+  （`api/main.py` 只做组装：挂路由/中间件/前端/生命周期，**保持 <300 行**。）
+- **新增配置项**：字段加在 **`api/config/settings_core.py` 的 `Settings` 类**（`api/config/__init__.py`
+  只是垫片，**别往那里加**），用 `Field(default, validation_alias="IF_XXX")` → `deploy/.env.example`
+  同步（`test_config_validate::TestEnvExampleSync` 会拦截缺失！）→ `Settings.validate()` 补校验。
+  **注意**：`test_config_validate::TestEnvMappingContract` 会强制每个字段二选一 ——
+  要么挂 `IF_*` alias，要么登记进 `NO_ENV_BY_DESIGN` 并写明为何有意不映射；
+  **忘记挂 alias 会 fail**（历史真缺陷：`user_agent` 曾是 202 字段中唯一漏挂的）。
+  分组子配置（`api/config/<group>.py`）需同步 `from_settings()` 工厂。
 - **前端改动**：改 `frontend/src/` → `npm run build` 产出 `frontend/dist/` → 让后端 `docs.html` 载入（静态资源走 `api/static/`）。
 
 ## 4. 测试指南
