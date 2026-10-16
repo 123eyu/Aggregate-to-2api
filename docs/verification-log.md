@@ -606,3 +606,88 @@
 | 2026-09-28 | **T4 补测**：auth 429 触发/alerting 三路径/log_buffer emit | auth 76.1 / alerting 95.4 / log_buffer 88.9；**抓出 attrs 键错剥 bug 已修** | 新增 10 用例全绿 |
 | 2026-09-28 | **T6 独立审查**：F1（429 误判崩溃 P1）+F2-F8 | NEEDS_CHANGES → 全部修复 → 复验 APPROVE | review-v231.md；36 补测+编译+ruff 0 |
 | 2026-09-28 | 版本全链 23.0.0→23.1.0 + landing dist 重建 | sync --check 一致；版本门禁 10 passed | 169 关键回归全绿 |
+
+## v23.3 记录（2026-10-15/16 · 终局审计 + CI 转绿批）
+
+> 本批**改动过的模块**（按本台账协议，旧记录对这些模块视为失效）：
+> `api/bg_tasks.py`、`api/sse_events.py`、`api/ws_events.py`、
+> `api/provider_probe.py`、`api/free_proxy_fetcher.py`、`api/proxy_tracer.py`、
+> `tests/conftest.py`、`tests/integration/test_honor.py`、
+> `tests/test_config_validate.py`、`tests/test_db_retention.py`、
+> `tests/test_sse_events_unit.py`、`tests/test_version_consistency.py`、
+> `frontend/src/test/setup.ts`、`frontend/vite.config.ts`、
+> `deploy/.env.example`、`.claude/skills/imagefree-workflow/*`
+
+| 日期 | 范围 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-10-15 | **CI 真实性核查**（GitHub Actions API 实测）：总运行 462 次；**最近 100 次 CI 54 failure + 1 cancelled、Deploy 45 failure，成功 0 次**；30 次 success 全在 2026-09-08 及更早 | ❌ **CI 已整体红约一个月** | 起点事实；取数方法见本文件末「取 CI 失败原因的方法」 |
+| 2026-10-15 | **前后端端点契约**（方法级实测，`scripts/probe_route_methods.py`）：从前端源码提取 31 个 `/v1` 路径字面量，对每个路径试 5 种 method | ✅ **31/31 全部存在，0 断链** | 关键教训：正则扫源码报"17 路径不存在"是**假信号**（尾斜杠/模板片段/测试 fixture），必须方法级实测 |
+| 2026-10-15 | **端点冒烟** 12 个：`/v1/livez` `/v1/healthz` `/v1/meta` `/v1/models` `/openapi.json` `/v1/tasks` `/v1/providers` `/v1/stats` `/v1/routing/records` `/metrics` `/admin` `/` | ✅ 全 200（`/admin` 307） | 本机 8100 实例（mock 上游模式，空库） |
+| 2026-10-15 | **静态站服务**：`node scripts/serve_static.cjs --port 4590` + curl | ✅ `/`→200、`/admin`→307、`/admin/tasks`→200 | 复刻 `api/main.py` 挂载语义 |
+| 2026-10-15 | **移动端真实浏览器 E2E**：`node scripts/e2e_mobile_smoke.cjs` | ✅ **9 passed / 0 failed**（真实 chromium 1243，截图落盘） | 375px 无横向滚动 / 深链回退 / a11y |
+| 2026-10-15 | **R-1 `bg_tasks` 静默失效**：`_engine` 是模块、`_queue_db` 是实例属性 → 每次必抛 AttributeError，且抛在 try 中部致**其后所有清理被跳过** | ✅ 已修 + 3 回归用例 | `tests/test_db_retention.py`；**AST 断言**（字符串匹配会被改名绕过，实测变异证明） |
+| 2026-10-15 | **R-2 SSE/WS 多订阅误清缓冲**：连接收尾无条件 `clear_task` → 先断开者清掉共享缓冲 | ✅ 已修 + 5 回归用例 | 新增 `clear_task_if_idle`（判空与清理同锁内）；**行为 3 + 调用点契约 2** —— 第一版只测方法不测调用点=伪测试，变异证明后补 |
+| 2026-10-15 | **R-3 前端 DOM 泄漏**：`vite.config.ts` 设 `isolate:false` 且注释**声称**有 cleanup，但 `setup.ts` 从无清理逻辑 | ✅ 已修（`afterEach(cleanup)`）+ **CI 实证转绿** | 本机（Node 25）复现不出，**CI（Node 20）是唯一验证环境**；修复后前端门禁连续 3 次 ✅ |
+| 2026-10-15 | **R-4 env 映射契约盲区**：既有校验用 regex 扫源码，无 alias 字段不进集合 | ✅ 已修 + 5 契约用例 | 实证 `Settings.user_agent` 是 202 字段中唯一漏挂 alias 的；变异验证有判别力 |
+| 2026-10-15 | **R-5 `.env.example` 注释指错文件**：称改 `http.py`，实为死副本 | ✅ 已修 | 权威在 `api/config/settings_core.py`；20 处生产消费 `config.USER_AGENT` |
+| 2026-10-15 | **R-6 覆盖率门槛文档 70 vs CI 80** | ✅ 已修 4 处 | 危害：按文档自测通过→推 CI 意外失败 |
+| 2026-10-16 | **R-8 `stop()` 冒泡打断优雅关闭**：三处管理器只捕 `CancelledError`，而 `await task` 会重抛原始异常；`provider_probe.stop()` 被 lifespan **直接 await** | ✅ 已修 + 7 回归用例 | 新增 `tests/test_shutdown_task_robustness.py`；三处变异同时摘掉→3 用例全红 |
+| 2026-10-16 | **R-9 `test_honor` 首页断言缺前置守卫**：`GET /` 是条件挂载，后端 CI job 不建前端 → 404 | ✅ 已修 | 两条路径实跑：有 dist→3 passed；移走 dist→2 passed + 1 skipped |
+| 2026-10-16 | **R-10 conftest DB 隔离被外部注入绕过**：`if "IF_DB_FILE" not in os.environ` 信任外部注入，CI 的 `IF_DB_FILE` 使其整个跳过 → `database is locked` | ✅ 已修（无条件临时库） | 注入 `IF_DB_FILE=data/ci_sim.db` 跑 test_ip_blocklist → 28 passed 且该文件**未被创建** |
+| 2026-10-16 | **受控回归**（R-8/R-9/R-10 后） | ✅ `test_shutdown_task_robustness` 7 + `test_free_proxy_fetcher` + `test_proxy_tracer` = **67 passed**；6 文件集合 **84 passed** | — |
+| 2026-10-16 | **前端全量**：`cd frontend && NODE_OPTIONS="--max-old-space-size=4096" npx vitest run` | ✅ **28 files / 299 tests passed**；`tsc -b` exit 0 | **关键**：512MB 堆会让 worker 起不来（见本文末「前端测试环境陷阱」） |
+| 2026-10-16 | **ruff**：`ruff check api/ tests/ scripts/` | ✅ All checks passed! | 改动文件亦通过 `ruff format --check` |
+| 2026-10-16 | **版本全链**：`sync_version.py --check` + `pytest tests/test_version_consistency.py` | ✅ 全链 23.3.1 一致；**5 passed**（含新增文档漂移门禁） | — |
+| 2026-10-16 | **CI 逐层修复实证**（5 次推送，逐次 API 核对 job） | 基线：后端❌+前端❌ → `d1b8ae7` 前端✅ → `26929d6` locked 消失 → `f862ce6` 单测✅ → `e55e8fb`/`8120970` **后端 job 全绿** | **CI 失败是级联的**：前一步失败会让后续步骤 `[skip]`，修好第一层才暴露第二层 |
+| 2026-10-16 | **发版**：v23.3.0（R-1~R-7）+ v23.3.1（R-8/R-9/R-10） | ✅ 两个 GitHub Release（id 414009216 / 414165828） | tag 均已推送；main 与 origin 同步 |
+
+### 本批**判定为伪问题、明确不做**的项（避免下次重复劳动）
+
+| 项 | 为什么不做 |
+|---|---|
+| 「`.env` 的 `IF_WORKERS=10` 被静默覆盖为 48」 | `.env` **根本不被读取**（`settings_core.py` 的 `model_config` 无 `env_file`；全仓无 `load_dotenv`；`start.ps1` 直接起 uvicorn 不加载）。哨兵逻辑**本身正确**（实测真 env var `IF_WORKERS=7` → 7）。改它 = 无用 diff + 把线上并发从 48 变 10 |
+| 「生产模板只列 42/201 个 `IF_*` 不完整」 | **正常设计**（其余走代码默认值），且 42 键**零幽灵键**（运行时 `model_fields` 比对 + `os.getenv` 扫描） |
+| 「分组配置与顶层默认值重复 86 项」 | **噪声**（多为数值恰好相等如 `5 == 5`），已弃用该扫描 |
+| `data/cov_audit.json` 报总体 28.4%/多模块 0% | **产物不可信**（部分跑+增量叠加）：`health_report.py` 单跑实测 **57%** |
+| 「landing 也需 cleanup」 | **不需要**：`PwaInstallPrompt.test.ts` 每处 `mount` 后都 `wrapper.unmount()`，自管生命周期 |
+| 「5 个页面 aria-label 为 0」 | 逐页核查为伪问题（所有 button 有可见文字、input 有 label 或显式 aria-label） |
+| `.gitignore` 补 `_*.py` 通配 | **经实证有害**：会静默忽略 `__init__.py`/`_base.py`/`_limits.py`，破坏所有包可提交性 |
+
+### 取 CI 失败原因的方法（`gh` CLI 缺失 + 本地代理已死时）
+
+```bash
+# 凭据：git credential manager 已存（与 git push 同源），不落盘不打印
+TOK=$(python -c "import os,subprocess;r=subprocess.run(['git','credential','fill'],input='protocol=https
+host=github.com
+
+',capture_output=True,text=True,timeout=60,env={**os.environ,'GIT_TERMINAL_PROMPT':'0','GCM_INTERACTIVE':'never'});print([l.split('=',1)[1] for l in r.stdout.splitlines() if l.startswith('password=')][0])")
+
+# runs / jobs / annotations（annotations 含失败消息全文）
+curl -sS --noproxy '*' --ssl-no-revoke "https://api.github.com/repos/lza6/Aggregate-to-2api/actions/runs/<run_id>/jobs"
+curl -sS --noproxy '*' --ssl-no-revoke "https://api.github.com/repos/lza6/Aggregate-to-2api/check-runs/<job_id>/annotations"
+
+# junit 产物（拿到**精确失败用例**）—— 注意必须用 curl -L，urllib 会因重定向 401
+curl -sSL --noproxy '*' --ssl-no-revoke -H "Authorization: Bearer $TOK"   "https://api.github.com/repos/lza6/Aggregate-to-2api/actions/artifacts/<artifact_id>/zip" -o junit.zip
+```
+
+- **`--ssl-no-revoke` 必需**：本机 schannel 吊销检查离线，否则报 `CRYPT_E_REVOCATION_OFFLINE`
+- job **日志**下载需 admin 权限（403）；annotations + junit 产物通常够用
+- `scripts/create_release.py` 封装了凭据 + 建 Release 的流程
+
+### 前端测试环境陷阱（**排查顺序**）
+
+1. **先怀疑堆内存**：`NODE_OPTIONS=--max-old-space-size=512`（项目调优建议里的值）**太小**，
+   vitest worker 起不来，表现为 `Timeout waiting for worker to respond` 或
+   `Worker exited unexpectedly`。**设成 4096 后立刻 28 files / 299 tests 全绿**
+2. 再怀疑非 ASCII 路径（`2api目录`）：`isolate:false` + `pool:'forks'` 已固化进配置
+3. 最后怀疑机器负载：先找**遗留的长跑 pytest**（本轮发现一个跑了 ~10 小时的
+   `pytest tests/ ... --junitxml=data/full_junit.xml` 占满 1 核）。
+   注意区分：`D:\参考项目\...` 下的进程属**其他项目**，不要误杀
+
+### 仍未闭环（本批结束时）
+
+- ~~**前端 vitest flake**：`Unable to find an element with the alt text: test prompt`~~
+  → **2026-10-16 已闭环**（根因与验证见文末「前端 vitest flake 根治（isolate 串味）」）。
+- **前端 `Tasks.test.tsx` 并行 flake**（预存，本轮一并闭环）→ 见同一节。
+- **线上主机 `20.204.27.154` 不可达**（TCP 22/80/443/8100 全超时，DNS 正常）→ 部署热更新受阻
+- **全量覆盖率真实数字**未取得（本机全量被 `--timeout=120` 卡在 `test_tryingopen.py::no_sleep`）
