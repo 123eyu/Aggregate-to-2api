@@ -210,13 +210,30 @@ class TestSimilarEndpoint:
         assert body["count"] == 0
         assert body["top_k"] == 10
 
-    async def test_similar_returns_top_k(self, isolated_vector_store):
-        """入库几个任务后，similar 端点返回 top_k。"""
+    async def test_similar_returns_top_k(self, isolated_vector_store, tmp_db, monkeypatch):
+        """入库几个任务后，similar 端点返回 top_k；**且只返回画廊可见的任务**。
+
+        2026-10-17 修：本用例原**只往向量库 upsert，从不写 `requests` 表**，
+        而 `_db()` 仍指向真实库 → 端点做反查过滤时会拿到 None。
+        该场景（有向量行、无 requests 行）**在生产中不存在** ——
+        向量是在任务完成后由 `on_task_completed` 钩子入库的，二者必然同时存在。
+        故补齐 `requests` 行，使用例反映真实链路；并**新增软删排除断言**
+        （原实现在软删后仍返回该 task_id，点进去必然 404）。
+        """
+        from api.routes import gallery as gallery_routes
         from api.routes.gallery import gallery_similar
+
+        # 让端点的反查走本用例的独立库
+        monkeypatch.setattr(gallery_routes, "_db", lambda: tmp_db)
 
         await isolated_vector_store.upsert("task-a", "a cute cat on a mat")
         await isolated_vector_store.upsert("task-b", "a cute cat on a mat")
         await isolated_vector_store.upsert("task-c", "a beautiful sunset")
+        # 三个任务都必须在 requests 里（生产链路的必要前提）
+        for tid in ("task-a", "task-b", "task-c"):
+            await tmp_db.create_request(tid, f"prompt {tid}", "1:1", False, "txt")
+            await tmp_db.mark_finished(tid, "completed", f"mock://{tid}.png", None, 1.0)
+        await tmp_db.flush()
 
         body = await gallery_similar(task_id="task-a", top_k=5, password=None)
         assert body["count"] >= 1
@@ -225,6 +242,14 @@ class TestSimilarEndpoint:
         task_b = [i for i in items if i["task_id"] == "task-b"]
         assert task_b
         assert task_b[0]["similarity"] > 0.95
+
+        # 软删 task-b 后，它必须从相似结果里消失（否则调用方点进去必 404）
+        await tmp_db.gallery_soft_delete("task-b")
+        await tmp_db.flush()
+        body2 = await gallery_similar(task_id="task-a", top_k=5, password=None)
+        ids2 = [i["task_id"] for i in body2["items"]]
+        assert "task-b" not in ids2, f"软删任务仍在相似结果里：{ids2}"
+        assert body2["count"] == len(ids2)
 
 
 class TestDuplicatesEndpoint:
