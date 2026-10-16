@@ -43,3 +43,23 @@ def spawn(coro: Coroutine[Any, Any, Any], *, name: str | None = None) -> asyncio
 def pending_count() -> int:
     """当前在途后台任务数（测试/诊断用）。"""
     return len(_BACKGROUND_TASKS)
+
+
+async def await_pending(timeout: float = 5.0) -> int:
+    """等待当前在途的后台任务结束；返回**超时仍未完成**的数量。
+
+    2026-10-17 补（先例：`sse_events.await_pending_sse_tasks`）。
+    用于消除「fire-and-forget 写」与调用方边界重叠导致的竞态：
+
+    典型场景 —— 测试 teardown 要切换共享单例（如 `ip_blocklist_store`）的 DB 路径。
+    若不先等在途写结束，在途任务会在**已经换过的**路径上继续执行
+    （`add_or_update` 里 `init_schema()` 与 `_get_conn()` 分别读
+    `_initialized` / `_path`，两者之间恰好被换路径 → 在新空库上 INSERT），
+    表现为 `sqlite3.OperationalError: no such table: ip_blocklist`
+    或与被换路径后的新用例争锁 → `database is locked`。
+    """
+    pending = [t for t in _BACKGROUND_TASKS if not t.done()]
+    if not pending:
+        return 0
+    _finished, still_pending = await asyncio.wait(pending, timeout=timeout)
+    return len(still_pending)

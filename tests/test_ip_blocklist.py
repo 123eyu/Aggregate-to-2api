@@ -61,18 +61,37 @@ def _reset_guard_state():
 async def blocklist_store(tmp_path):
     """把单例 store 指向独立临时 DB，保证每用例真正隔离。
 
-    v13 P0-3：teardown 强制换回原路径并置未初始化，同时尝试等待在途
-    _auto_block_ip 后台任务（异步 spawn 的封禁写与用例边界重叠时，会
-    与新用例的 add_or_update 在同一 store 锁排队，但若换路径时仍有
-    上一用例的 aiosqlite 连接未释放，会残留写锁竞争 database is locked）。
-    显式 close 的时机由 store 方法自管；此处仅重置共享单例状态。
+    ⚠ **2026-10-17 修（本条 docstring 此前"说了没做"）**：
+    旧版 docstring 声称「同时尝试等待在途 _auto_block_ip 后台任务」，
+    但**代码里没有任何等待动作** —— 只翻了 `_path` / `_initialized` 两个标志，
+    于是留下一个真实竞态，正是 CI 上 `test_ip_blocklist` 长期 flake 的根因：
+
+        `add_or_update` 的 `init_schema()` 读 `_initialized`、`_get_conn()` 读 `_path`，
+        两者**不是同一次读取**。若在途的 `_auto_block_ip`（`spawn` 出去的 fire-and-forget 写）
+        在这两步之间被本 fixture 翻成新路径 → 它会在**全新空库**上执行
+        `INSERT INTO ip_blocklist` → `sqlite3.OperationalError: **no such table**`；
+        若时序稍差则与新用例争同一把 sqlite 写锁 → `**database is locked**`。
+        （两种症状在 CI junit 里都出现过。）
+
+    现修：**换路径前后各等一次在途任务**（`background.await_pending`），
+    确保没有任何写跨越路径切换点。`store` 的连接由各方法自开自关（`finally: close`），
+    故无需在此显式关闭。
     """
+    from api import background
+
+    # 换路径前：等上一用例遗留的在途写结束（否则它会在新路径上继续写）
+    await background.await_pending(timeout=5.0)
+
     old_path = store._path
     store._path = str(tmp_path / "ip_blocklist.db")
     store._initialized = False
-    yield store
-    store._path = old_path
-    store._initialized = False
+    try:
+        yield store
+    finally:
+        # 换回路径前：等本用例的在途写结束（这是原缺陷的直接触发点）
+        await background.await_pending(timeout=5.0)
+        store._path = old_path
+        store._initialized = False
 
 
 async def _add_and_apply(ip: str, **kwargs) -> dict:

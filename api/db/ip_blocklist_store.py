@@ -44,7 +44,25 @@ class IPBlocklistStore:
         return conn
 
     async def init_schema(self) -> None:
-        """初始化表结构与索引。"""
+        """初始化表结构与索引。
+
+        ⚠ **已知 TOCTOU（2026-10-17 实测复现，当前仅靠"不在运行期改 `_path`"规避）**：
+        本方法与各写方法里的 `_get_conn()` **分别**读 `_initialized` 与 `_path`，
+        两次读取之间不是原子的。若在此期间 `_path` 被改（**测试 fixture 会这么做**，
+        生产不会 —— `_path` 在 import 期定死），在途写会落到**新路径的空库**上：
+
+            async with store._write_lock.acquire() 被占住
+              → add_or_update 在 init_schema() 返回后卡在写锁
+              → 外部把 _path 换成新库并置 _initialized=False
+              → 放行 → _get_conn() 用新库 → INSERT → no such table: ip_blocklist
+
+        已实测复现（报错与 CI junit 逐字一致）。**缓解措施在测试侧**：
+        `tests/test_ip_blocklist.py` 的 `blocklist_store` fixture 换路径前先
+        `await background.await_pending()` 排空在途写。
+        **若将来需要在运行期改 `_path`（例如多租户/动态切库），必须先加固本类**
+        —— 正确做法是「单次快照 `_path` + 在**同一连接**上确保表存在」，
+        而不是分别读两个属性。
+        """
         if self._initialized:
             return
         async with self._lock:
