@@ -87,8 +87,17 @@ export function useTaskProgress(taskId: string | null, options: UseTaskProgressO
     const seq = ++seqRef.current;
     setRunning(true);
 
+    // 轮询「不得降级覆盖」用的状态记忆（本次 effect 生命周期内有效）。
+    // 背景：轮询 `GET /v1/tasks/{id}` 只拿得到顶层 status（该响应不含 status_detail/progress，
+    // 二者仅存在于 SSE 事件负载）。若每轮 tick 都无条件 apply(mapStatusToDetail(...))，
+    // 则 processing 映射出的 {null,null} 会把 SSE 刚写入的精确阶段（solving/30、generating/80）
+    // **抹回「运行中」+ 无定值进度条** —— 表现为进度条每 2s 跳一次（用户可见缺陷，
+    // 2026-10-16 由 Tasks.test.tsx 的失败 DOM 实证：aria-label="任务阶段：运行中" + 无 aria-valuenow）。
+    let lastAppliedStatus: string | null = null;
+
     const apply = (s: string, detail: string | null, p: number | null) => {
       if (seq !== seqRef.current) return;
+      lastAppliedStatus = s;
       setStatus(s);
       setStatusDetail(detail);
       setProgress(p);
@@ -109,6 +118,9 @@ export function useTaskProgress(taskId: string | null, options: UseTaskProgressO
           return;
         }
         const mapped = mapStatusToDetail(t.status);
+        // 兜底映射为空（典型：processing）且顶层状态未变 → 保留已知的更精确值，不降级覆盖。
+        // 轮询的职责是「探测终态 + 无 SSE 时兜底」，不是用粗粒度信息覆盖精确信息。
+        if (mapped.statusDetail === null && lastAppliedStatus === t.status) return;
         apply(t.status, mapped.statusDetail, mapped.progress);
       } catch {
         // 单轮轮询失败静默（网络抖动），下一轮继续；终态兜底由 SSE result/error 或后续轮询补

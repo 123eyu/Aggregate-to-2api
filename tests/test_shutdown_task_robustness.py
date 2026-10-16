@@ -67,16 +67,6 @@ async def test_stop_tolerates_task_that_failed_with_non_cancelled_error(make, ta
     await mgr.stop()
 
 
-# 三个管理器的构造签名不同：ProviderProbeManager() 无参；
-# FreeProxyFetcher/ProxyTracer 需 pool（stop() 不使用它，传 None 即可）。
-_MANAGERS = [
-    (lambda: ProviderProbeManager(), "_task"),
-    (lambda: FreeProxyFetcher(None), "task"),
-    (lambda: ProxyTracer(None), "task"),
-]
-_IDS = ["provider_probe", "free_proxy_fetcher", "proxy_tracer"]
-
-
 @pytest.mark.parametrize("make,task_attr", _MANAGERS, ids=_IDS)
 @pytest.mark.asyncio
 async def test_stop_still_cancels_healthy_task(make, task_attr):
