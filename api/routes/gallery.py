@@ -109,6 +109,13 @@ async def gallery_similar(
     """返回与指定任务最相似的 top_k 个任务（基于 prompt embedding）。
 
     鉴权同 /v1/gallery：签名 URL 优先，回退静态密码，皆空开放。
+
+    **2026-10-17 修**：本端点原样返回 `similar_search` 的结果，**未过滤软删/已缺失的任务**
+    —— 而同一逻辑操作的另一条路径（`/v1/gallery/{id}` 的 `similar` 字段）是做过
+    反查 + 跳过缺失/已软删的（见该处「H3 修复」注释）。同一语义两条路径行为不一致，
+    会让调用方拿到点进去必然 404 的 `task_id`。
+    现补同样过滤：反查 `gallery_get`，缺失或已软删（`status='deleted'`）的条目跳过。
+    `task_vectors` 在**独立库**（`data/vectors.db`）且无 status 列，故只能反查主库判定。
     """
     _require_vector_enabled()
     _gallery_auth(password)
@@ -116,7 +123,16 @@ async def gallery_similar(
     from ..vector.store import get_vector_store
 
     store = get_vector_store()
-    items = await store.similar_search(task_id, top_k=top_k)
+    raw = await store.similar_search(task_id, top_k=top_k)
+    items: list[dict[str, Any]] = []
+    for sim in raw:
+        sim_id = sim.get("task_id") or sim.get("id")
+        if not sim_id:
+            continue
+        # gallery_get 已排除软删（status='deleted'）与非终态 → None 即跳过
+        if await _db().gallery_get(str(sim_id)) is None:
+            continue
+        items.append(sim)
     return {
         "task_id": task_id,
         "items": items,

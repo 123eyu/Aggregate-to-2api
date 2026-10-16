@@ -343,3 +343,39 @@ async def test_stats_denominator_drops_after_runtime_soft_delete(seeded_gdb):
     assert after["total_images"] == before["total_images"] - 1
     # 分母与分子的差值应保持不变（pending 的那 1 条）
     assert after["total_requests"] - after["total_images"] == before["total_requests"] - before["total_images"]
+
+
+# ── 2026-10-17 回归锁：/v1/gallery/similar 必须过滤软删/缺失 ───────────────
+#
+# 真缺陷（语义不一致）：同一逻辑操作（「推荐相似图」）有两条路径 ——
+#   · `/v1/gallery/{id}` 的 `similar` 字段：反查 requests 补齐 + **跳过缺失/已软删**
+#     （见该处「H3 修复」注释）
+#   · `/v1/gallery/similar` 独立端点：原样返回 `similar_search` 结果，**未过滤**
+# `/v1/gallery/similar` 因此可能返回点进去必然 404 的 task_id。
+#
+# 严重度说明（据实下调，非 P1）：前端**从不调用**该端点（仅直接 API 使用者会命中）、
+# 功能默认关闭（`IF_VECTOR_SEARCH_ENABLED=0`）、且用户可见路径已过滤。
+# 但它仍是真缺陷 —— 同语义两条路径行为不一致。
+
+
+@pytest.mark.asyncio
+async def test_gallery_similar_endpoint_filters_soft_deleted_and_missing(seeded_gdb, monkeypatch):
+    """相似端点：软删(t4)与不存在(no_such)的条目必须被过滤，只留可见项(t2)。"""
+    import api.vector.store as vs
+
+    class _FakeStore:
+        async def similar_search(self, task_id: str, top_k: int = 10):  # noqa: ARG002
+            return [
+                {"task_id": "t2", "similarity": 0.9},  # 可见 → 应保留
+                {"task_id": "t4", "similarity": 0.8},  # 已软删 → 应过滤
+                {"task_id": "no_such", "similarity": 0.7},  # 不存在 → 应过滤
+            ]
+
+    monkeypatch.setattr(gallery_routes, "_vector_enabled", lambda: True)
+    monkeypatch.setattr(vs, "get_vector_store", lambda: _FakeStore())
+
+    resp = await gallery_routes.gallery_similar(task_id="t1", top_k=10, password=None)
+    ids = [i["task_id"] for i in resp["items"]]
+    assert ids == ["t2"], f"软删/缺失未被过滤：{ids}"
+    assert resp["count"] == 1
+    assert resp["top_k"] == 10
