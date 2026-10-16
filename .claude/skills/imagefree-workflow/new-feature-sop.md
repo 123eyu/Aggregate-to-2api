@@ -56,13 +56,12 @@
   E2E_BASE=http://localhost:4510 node a11y-audit.cjs
   E2E_BASE=http://localhost:4510 node resp-audit.cjs
   ```
-  > `vitest` 的 `isolate:true` + `maxWorkers:2` 已固化在 `vite.config.ts`；
-  > 若改动该文件，**两处必须一起改**（单改 `isolate:true` 会得到 `28 errors / 0 tests` ——
-  > 该超时**已实测复现**，非历史包袱）。
-  > **环境限定**：以上阈值是**本机（Windows + 非 ASCII 路径 `2api目录`）**的实测；
-  > **CI（ubuntu-latest / Node 20 / ASCII 路径）实测 vitest 步骤仅 15s**，未受该限流拖累 ——
-  > 即 `maxWorkers:2` 在 CI 上是安全余量、在本机是「能不能跑」的必需项。
-  > **不要**把两边的耗时当同一口径比较（平台/路径/Node 版本全不同）。
+  > `vitest` 当前配置：`isolate: true` + `pool: 'forks'`（**无 `maxWorkers`**）。
+  > **隔离必须保持开启** —— 关掉会引入跨文件 mock 实例串味（`vi.mock` 按文件注册，
+  > 后跑文件的组件闭包仍指向上个文件遗留的 mock 实例）= CI「同一 commit 时而红时而绿」的根因。
+  > **遇到 `no tests` 先查机器负载**（HEAD `79a5374`：worker 启动对负载敏感，**换 pool 无效**），
+  > 临时 `npx vitest run --maxWorkers=2` 即可；**不要**把降并发固化进配置 ——
+  > 实测它无收益却把全量从 108s 拖到 511s（4.7×）。
 
 ### 6. 文档 + CI + 发版
 - `README.md` 端点表加行；`docs/SOP.md` 排查表加症状；`deploy/.env.example` 加新 `IF_*`

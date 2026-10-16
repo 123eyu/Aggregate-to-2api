@@ -112,7 +112,12 @@ def main() -> int:
         check("1 /v1/healthz 200", r.status_code == 200)
         r = client.get("/openapi.json")
         ver = r.json().get("info", {}).get("version", "")
-        check("2 openapi version==20.0.0", ver == "23.3.2", f"got {ver}")
+        # 2026-10-17：标签原先硬编码 "2 openapi version==20.0.0"，而断言早已是 23.x ——
+        # 标签陈旧且 `sync_version.py` **改不到它**（其 E2E_PATTERN 是 `"(\d+\.\d+\.\d+)"`，
+        # 只匹配**独立成串**的版本字面量，标签里的版本嵌在句子中间故不命中）。
+        # 改为引用同一个独立字面量：既可断言又可读，且能随 sync_version 一起更新。
+        _expected = "23.3.2"
+        check(f"2 openapi version=={_expected}", ver == _expected, f"got {ver}")
 
         # 3-4. skills 可发现性
         r = client.get("/v1/agent/skills")

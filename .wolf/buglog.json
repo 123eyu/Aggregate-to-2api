@@ -39,7 +39,7 @@
     "error_message": "CI 间歇红：src/test/Gallery.test.tsx 4 用例 TestingLibraryElementError: Unable to find an element with the alt text: test prompt（DOM 里是 GalleryAlbum 的 2 项数据：imagefree/default 徽章 +「已加载全部 2 张」）",
     "file": "frontend/vite.config.ts",
     "root_cause": "isolate:false 让同一 worker 内多个测试文件共享模块实例，而 vi.mock 假模块按文件注册 —— 后跑文件的组件（Gallery.tsx，已被上个文件缓存）闭包仍指向上一个文件遗留的 mock 实例，本文件新注册的 mock 对其无效。触发条件是「两个 Gallery 测试文件被分配到同一 worker」，CI 4 vCPU 靠 worker 空闲竞争分配 → 偶发同组 → 时红时绿。",
-    "fix": "frontend/vite.config.ts: isolate:false → true，并**配套 maxWorkers: 2**。关键取舍：不能靠「继续关隔离」绕过（那正是串味原因）；而 isolate:true 下每个文件都重启 worker 环境，启动成本上升，vitest worker 启动有 60s 内部硬超时、非 ASCII 路径（2api目录）下本就偏慢 —— 本机实测：默认并发 + isolate:true → **28 errors / 0 tests（套件完全不可用）**；maxWorkers:2 + isolate:true → **28 files / 300 passed（488s）**。故两处同时改，maxWorkers 写进配置不依赖 CLI 参数。复现/验证：npx vitest run --no-file-parallelism <Album> <Gallery> 修复前 4 failed|7 passed（反向 7 failed）；修复后 CI 同款命令 npx vitest run → 28 passed/300 passed/0 failed。**注**：早先本字段曾写「非 ASCII 路径隔离 worker 超时的绕行经复测未复现」——那是**错误**陈述，已实测复现（见上），故据实更正。",
+    "fix": "frontend/vite.config.ts: isolate:false → true（pool:'forks' 保持）。**本条 fix 字段的结论史（我在此反复改错两次，写全以免再翻烧饼）**：① 原注释（2026-10-14）为绕开「非 ASCII 路径下隔离 worker 启动 60s 超时」而关隔离；② 代理复测（2026-10-16）**未复现**该超时 → 开隔离【✅ 正确】；③ 我据一次实测（28 errors / 0 tests）写「该超时依然存在」并加了 maxWorkers:2【❌ 错误】；④ 终版（2026-10-17）：③ 是**机器负载伪影** —— 当时并行开着 3 个跑 vitest 的子代理（CPU≈95%），正是 HEAD 79a5374 已记录的陷阱「worker 启动对机器负载敏感，换 pool 无效」。**证据（两独立来源）**：独立验证线程同机四组组合（默认并发 / maxWorkers:2 × 堆 512/不设）**全部 28 passed / 300 passed**；我本人重测 `--maxWorkers=24`（=默认）→ 28 文件 / 300 passed；移除 maxWorkers 后全量复跑 → **28 files / 301 tests / 0 failed**。据此**移除 maxWorkers:2** —— 实测无收益却把全量从 108s 拖到 511s（4.7×）。**教训**：遇到 `no tests` / `Timeout waiting for worker to respond` 先查 CPU 负载，临时用 `--maxWorkers=2` 即可，**不要固化进配置、也不要据此推断配置属性**。",
     "tags": [
       "vitest",
       "isolate",
@@ -51,7 +51,7 @@
     ],
     "related_bugs": [],
     "occurrences": 1,
-    "last_seen": "2026-10-16T04:30:00Z"
+    "last_seen": "2026-10-16T20:19:59Z"
   },
   {
     "id": "bug-026",
@@ -59,7 +59,7 @@
     "error_message": "frontend Tasks.test.tsx:107 Unable to find an element with the text: 求解中（失败 DOM 显示 aria-label=\"任务阶段：运行中\"、progressbar 无 aria-valuenow）—— 全量并行时偶发",
     "file": "frontend/src/test/Tasks.test.tsx",
     "root_cause": "useTaskProgress 每 2000ms 轮询 GET /v1/tasks/{id}，而 GET 响应不含 status_detail → mapStatusToDetail('processing')={null,null} 会把 SSE 刚写入的「求解中/30」清回「运行中」。用例成败取决于「SSE 派发→断言」是否跨过 2s 边界，机器满载（并行 jsdom / CI 4 vCPU）即随机红。对照组：isolate:false + 并行同样复现 → 与 isolate 修复无关，属预存 flake。",
-    "fix": "该用例内 vi.useFakeTimers()（轮询 interval 不再自行触发，mount 时的直接 poll() 仍走微任务），afterEach 统一 vi.useRealTimers()；断言强度不变。实测单跑 4 passed + 全量 3 连 299 passed。未改产品代码：轮询覆盖 SSE 精确值是产品取舍，待产品侧决策。",
+    "fix": "**该字段已过期，据实更正（2026-10-17）**：原写「未改产品代码：轮询覆盖 SSE 精确值是产品取舍，待产品侧决策」—— 但 `19718b5` **实际改了产品代码**：`frontend/src/hooks/useTaskProgress.ts` 加了「映射为空且状态未变则保留精确值」的降级守卫（`if (mapped.statusDetail === null && lastAppliedStatus === t.status) return;`），并配了真定时器回归用例；**变异验证**：摘掉该行 → 新用例单独失败、原 4 条照过（1 failed/4 passed）。另：该修复自身在 SSE 断线时缺复位，已由后续提交补上（`handleDisconnect` 里 `lastAppliedStatus = null`）。测试侧同期改为 `vi.useFakeTimers()`（消除 2s 轮询对断言时序的干扰），afterEach 统一还原真实定时器。",
     "tags": [
       "vitest",
       "flaky",
@@ -73,6 +73,6 @@
       "bug-025"
     ],
     "occurrences": 1,
-    "last_seen": "2026-10-16T04:30:00Z"
+    "last_seen": "2026-10-16T20:19:59Z"
   }
 ]
