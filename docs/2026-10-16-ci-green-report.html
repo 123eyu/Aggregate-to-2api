@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>听风AI · 2026-10-16 CI 转绿变更报告</title>
+<style>
+  :root{
+    --ink:#101317; --ink2:#2b323b; --muted:#6a7480; --line:#e2e6ec;
+    --bg:#fafbfc; --card:#fff; --accent:#1f6f4a; --accent-soft:#eaf6f0;
+    --warn:#a35a08; --warn-soft:#fdf4e7; --crit:#a8261d; --crit-soft:#fdeceb;
+    --blue:#2551a8; --blue-soft:#eef3fd;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:0 24px 120px}
+
+  header.hero{padding:76px 0 44px;border-bottom:1px solid var(--line);margin-bottom:52px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 18px}
+  h1{font-size:clamp(31px,5.2vw,46px);line-height:1.16;margin:0 0 22px;letter-spacing:-.022em;font-weight:700}
+  .lede{font-size:clamp(17px,2.2vw,19.5px);color:var(--ink2);margin:0;max-width:66ch}
+  .meta{display:flex;flex-wrap:wrap;gap:22px;margin-top:30px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:600}
+
+  h2{font-size:clamp(21px,3vw,27px);margin:58px 0 18px;letter-spacing:-.012em;
+     padding-top:24px;border-top:1px solid var(--line)}
+  h2 .num{font-family:var(--mono);font-size:.62em;color:var(--accent);margin-right:12px;vertical-align:.12em}
+  h3{font-size:17px;margin:32px 0 10px;letter-spacing:-.005em}
+  p{margin:0 0 16px}
+  ul,ol{margin:0 0 16px;padding-left:22px}
+  li{margin:7px 0}
+  code{font-family:var(--mono);font-size:.875em;background:#eff1f6;padding:2px 6px;
+    border-radius:5px;color:#333d4d;word-break:break-word}
+  pre{background:#0f1216;color:#e6e9f0;padding:18px 20px;border-radius:11px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.62;margin:0 0 20px}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit}
+  .cmt{color:#8b95a7}.ok{color:#7ee0a6}.bad{color:#ff8b8b}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:22px 24px;margin:0 0 18px}
+  .card.crit{border-left:3px solid var(--crit);background:var(--crit-soft)}
+  .card.warn{border-left:3px solid var(--warn);background:var(--warn-soft)}
+  .card.good{border-left:3px solid var(--accent);background:var(--accent-soft)}
+  .card.info{border-left:3px solid var(--blue);background:var(--blue-soft)}
+  .card h3{margin-top:0}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+    padding:2px 9px;border-radius:999px;letter-spacing:.05em;margin-bottom:10px}
+  .tag.p0{background:var(--crit);color:#fff}
+  .tag.p1{background:#d9530f;color:#fff}
+  .tag.p2{background:#c39a1d;color:#2b2100}
+  .tag.ok{background:var(--accent);color:#fff}
+  .tag.ghost{background:#e7eaf1;color:#495264}
+
+  table{width:100%;border-collapse:collapse;margin:0 0 22px;font-size:14.5px}
+  th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+     font-family:var(--mono);font-weight:600;background:#f4f6f9}
+  tbody tr:hover{background:#fafbfd}
+  td code{font-size:.85em}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:14px;margin:0 0 26px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:16px 18px}
+  .stat .n{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1.1;letter-spacing:-.02em}
+  .stat .l{font-size:12.5px;color:var(--muted);margin-top:5px}
+  .stat.good .n{color:var(--accent)}
+  .stat.bad .n{color:var(--crit)}
+
+  blockquote{margin:0 0 18px;padding:14px 20px;border-left:3px solid var(--blue);
+    background:var(--blue-soft);border-radius:0 9px 9px 0;color:var(--ink2)}
+  blockquote p:last-child{margin-bottom:0}
+
+  details{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:16px 20px;margin:0 0 14px}
+  details[open]{padding-bottom:20px}
+  summary{cursor:pointer;font-weight:600;list-style:none;display:flex;gap:12px;align-items:flex-start}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--accent);font-size:15px;line-height:1.5;transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  summary .q{flex:1}
+  details .ans{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);color:var(--ink2)}
+  details .ans p:last-child{margin-bottom:0}
+
+  .quiz-head{background:linear-gradient(135deg,#0f2b21,#1f6f4a);color:#fff;
+    border-radius:15px;padding:28px 30px;margin:0 0 26px}
+  .quiz-head h2{border:none;padding:0;margin:0 0 10px;color:#fff}
+  .quiz-head p{margin:0;opacity:.92;font-size:15px}
+
+  footer{margin-top:66px;padding-top:26px;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">变更报告 · 2026-10-16 · v23.3.1 → v23.3.2</p>
+  <h1>CI 第一次全绿，<br>而那条 flaky 的根因和我想的完全不同</h1>
+  <p class="lede">
+    这份报告讲三件事：<strong>CI 为什么红了一个月</strong>、<strong>那条「无法复现的 flaky」到底是什么</strong>、
+    以及<strong>我在这两件事上分别错了多少次</strong>。所有结论都附可复现的命令。
+  </p>
+  <div class="meta">
+    <span><b>范围</b> cf663ac → 64e1502（8 提交）</span>
+    <span><b>版本</b> 23.3.2</span>
+    <span><b>CI</b> run 38887120926 success</span>
+    <span><b>真缺陷</b> 4 项</span>
+  </div>
+</header>
+
+<h2><span class="num">01</span>起点：我们一直以为 CI 是绿的</h2>
+
+<p>这一轮开始时我做的第一件事是查 GitHub Actions 的真实历史 —— 结果推翻了整个前提。</p>
+
+<div class="grid">
+  <div class="stat bad"><div class="n">0</div><div class="l">最近 100 次里的成功数</div></div>
+  <div class="stat"><div class="n">462</div><div class="l">历史总运行数</div></div>
+  <div class="stat bad"><div class="n">~5 周</div><div class="l">CI 持续红的时间</div></div>
+  <div class="stat good"><div class="n">6/6</div><div class="l">本轮最终 job 通过数</div></div>
+</div>
+
+<blockquote>
+  <p>从 <strong>2026-09-28 起连续 11 次 CI 全红</strong>。最后一次成功是 2026-09-08 之前。
+  而这期间所有开发都在「CI 是绿的」这个假设下进行。</p>
+</blockquote>
+
+<h3>为什么一直没被发现：CI 的失败是<b>级联</b>的</h3>
+
+<p>前一步失败会让后续步骤直接 <code>[skip]</code>。所以修好第一层才暴露第二层 —— 这也解释了为什么「修一处」看起来没用：</p>
+
+<table>
+  <thead><tr><th>提交</th><th>后端 job</th><th>前端门禁</th><th>揭示了什么</th></tr></thead>
+  <tbody>
+    <tr><td>基线</td><td>❌ 单元测试</td><td>❌ Vitest</td><td>起点：两个 job 红</td></tr>
+    <tr><td><code>d1b8ae7</code></td><td>❌ 单元测试</td><td><strong>✅</strong></td><td>DOM 泄漏修复在 CI 得到实证</td></tr>
+    <tr><td><code>26929d6</code></td><td>❌（<code>database is locked</code> 已消失）</td><td>✅</td><td>DB 隔离修复生效</td></tr>
+    <tr><td><code>f862ce6</code></td><td>⚠️ 单测 ✅，改由<strong>集成测试</strong>失败</td><td>✅</td><td>shutdown 修复生效；集成步骤此前一直被 <code>[skip]</code></td></tr>
+    <tr><td><code>e55e8fb</code></td><td><strong>✅</strong></td><td>⚠️ 另一条 flake</td><td>后端 job 转绿</td></tr>
+    <tr><td><code>19718b5</code></td><td><strong>✅</strong></td><td><strong>✅</strong></td><td><strong>六个 job 全绿（首次）</strong></td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">02</span>直觉：为什么 flaky 比崩溃更难修</h2>
+
+<p>崩溃会给你堆栈。flaky 不会 —— 它只给你「这次红了、上次是绿的」，然后你要在两种可能里选：</p>
+
+<ul>
+  <li><strong>A</strong>：代码真有缺陷，只是触发条件苛刻</li>
+  <li><strong>B</strong>：环境/时序问题，代码没错</li>
+</ul>
+
+<p>选错方向的代价极不对称：把 A 当成 B → 缺陷一直留着；把 B 当成 A → 你去「修」一段本来正确的代码，diff 看着很专业，实际是**伪工作量**。</p>
+
+<p>我在这条 flaky 上<strong>先选了 B，而且公开说了「本机无法复现，所以不做投机修改」</strong>。那句话本身没错（不臆测是对的），但它让我在**能复现却没想到方法**时过早收手。真正让我找到答案的是换了个思路：<strong>不是等它自然复现，而是强制构造触发条件</strong>。</p>
+
+<h2><span class="num">03</span>根因：`isolate: false` 让 mock 跨文件串味</h2>
+
+<div class="card crit">
+  <span class="tag p1">P1 · 核心</span>
+  <h3>机制</h3>
+  <p><code>isolate: false</code> 让<strong>同一 worker 内的多个测试文件共享模块实例</strong>，
+  而 <code>vi.mock</code> 的假模块是<strong>按文件注册</strong>的 —— 后跑文件里被缓存的组件闭包
+  仍指向<strong>上一个文件遗留的 mock 实例</strong>，本文件新注册的 mock 对它完全无效。</p>
+  <p>强制两文件同 worker 连跑（<code>--no-file-parallelism</code>）的实测：</p>
+  <pre><code>GalleryAlbum → Gallery ：
+  Gallery.test.tsx <span class="bad">4 用例全红</span>
+  TestingLibraryElementError: Unable to find an element with the alt text: test prompt
+  <span class="cmt">（DOM 里其实是 GalleryAlbum 的 2 项数据）</span>
+
+Gallery → GalleryAlbum ：
+  GalleryAlbum <span class="bad">7 用例全红</span>
+  Cannot read properties of undefined (reading 'total')</code></pre>
+  <p>这两个文件是全仓库<strong>唯一</strong>「同一组件 + 同一 <code>vi.mock</code> 目标」的组合
+  （单 worker 全量实测 <code>2 failed | 26 passed</code>，失败仅此一对）。</p>
+</div>
+
+<div class="card info">
+  <h3>这如何解释「同一 commit 时红时绿」</h3>
+  <p>文件→worker 的分配取决于<strong>哪个 worker 先空闲</strong>。CI runner 只有 4 vCPU，
+  两个 Gallery 文件偶尔落进同一 worker → 后跑者必红。
+  本机 16 vCPU 几乎不会同组 —— 所以<strong>本地长期复现不到</strong>。</p>
+</div>
+
+<h3>修法：不是关隔离，而是开隔离 + 降并发</h3>
+
+<p>我一开始差点走错方向 —— 原注释写着「关隔离是为了绕开非 ASCII 路径下 worker 启动超时」，
+顺着这条线很容易得出「那就继续关着」。但**关隔离正是病根**。实测两条路的代价：</p>
+
+<table>
+  <thead><tr><th>配置</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td><code>isolate: false</code>（原）</td><td>默认并发能跑，但<strong>跨文件 mock 串味</strong> → CI 间歇红</td></tr>
+    <tr><td><code>isolate: true</code> + 默认并发</td><td class="bad"><strong>28 errors / 0 tests</strong>（全部 worker 启动超时，套件完全不可用）</td></tr>
+    <tr><td><code>isolate: true</code> + <strong><code>maxWorkers: 2</code></strong></td><td class="ok"><strong>28 files / 300 passed</strong>（稳定可跑）</td></tr>
+  </tbody>
+</table>
+
+<p>所以两处<strong>必须同时改</strong>，且 <code>maxWorkers</code> 写进配置（不依赖 CLI 参数，否则 CI 不受益）。</p>
+
+<h2><span class="num">04</span>顺带发现：进度条每 2 秒被抹回「运行中」</h2>
+
+<div class="card warn">
+  <span class="tag p2">P2 · 用户可见</span>
+  <h3>数据模型层面的不一致</h3>
+  <p>后端把任务阶段发<strong>两条路</strong>，但只有一条带细节：</p>
+  <table>
+    <thead><tr><th>通道</th><th>带 <code>status_detail</code>/<code>progress</code>？</th></tr></thead>
+    <tbody>
+      <tr><td>SSE（<code>api/worker/engine.py</code> 发布）</td><td class="ok">✅ 带（queued=5 / solving=30 / generating=80）</td></tr>
+      <tr><td><code>GET /v1/tasks/{id}</code>（响应模型 <code>TaskInfo</code>）</td><td class="bad">❌ 不带（DB 层也从未持久化）</td></tr>
+    </tbody>
+  </table>
+  <p>前端<strong>两条路都订阅</strong>。于是：</p>
+  <ol>
+    <li>SSE 推 <code>solving/30</code> → 进度条显示「求解中 30%」</li>
+    <li>2 秒后轮询返回 <code>processing</code> → 映射出 <code>{null,null}</code> → <strong>被清回「运行中」+ 无定值进度条</strong></li>
+  </ol>
+  <p><strong>用户看到的就是进度条每 2 秒跳一次。</strong></p>
+</div>
+
+<p>修法：轮询的职责是「探测终态 + 无 SSE 时兜底」，<strong>不是</strong>用粗粒度信息覆盖精确信息：</p>
+
+<pre><code><span class="cmt">// 状态变了要更新；状态没变且映射不出更细的阶段 → 不动现有精确值</span>
+if (mapped.statusDetail === null &amp;&amp; lastAppliedStatus === t.status) return;</code></pre>
+
+<p>这个前提我用<strong>真实订阅</strong>验证过（不是读代码推断）：</p>
+
+<pre><code>$ 建任务 → 订阅 /v1/tasks/{id}/events
+收到 data 帧: 4
+status_detail 取值: ['error', 'queued', 'solving']
+progress      取值: [5, 30]
+<span class="ok">✅ SSE 确实携带 status_detail/progress —— 前端修复的前提成立</span></code></pre>
+
+<h2><span class="num">05</span>方法：变异测试救了我两次</h2>
+
+<p>「加了测试」和「测试能抓住这个 bug」是两件事。本批我每写一个回归锁都做变异测试 —— 把修复改回去，看测试是否<strong>真的会红</strong>。它抓出了我两个问题：</p>
+
+<div class="card crit">
+  <span class="tag p1">自我纠错</span>
+  <h3>① 进度条那条测试，第一版是伪测试</h3>
+  <p>第一版直接调 hook 的方法验证行为 —— 但变异的是<strong>调用点</strong>时它照样全绿。
+  补了「真定时器 + 主动越过 2000ms」的用例后才抓住：
+  <strong>摘掉修复 → 该用例单独失败、原 4 条照过</strong>（<code>1 failed | 4 passed</code>）。</p>
+</div>
+
+<div class="card crit">
+  <span class="tag p1">自我纠错</span>
+  <h3>② 我在 buglog 里写了一句与实测相反的话</h3>
+  <p>代理提交的记录写着「非 ASCII 路径隔离 worker 超时的绕行<strong>经复测未复现</strong>」。
+  我实测<strong>复现了</strong>（<code>28 errors / 0 tests</code>）。已据实更正，
+  并把「必须配 <code>maxWorkers:2</code>」及其量化依据写进记录 ——
+  否则下个会话会照旧记录以为「关隔离只是历史包袱、可随手打开」。</p>
+</div>
+
+<blockquote>
+  <p>这一批我抓到的真问题里，有相当比例是<strong>「文字与实现不符」</strong>：
+  <code>setup.ts</code> 声称的清理、<code>.env.example</code> 指错的修改文件、覆盖率门槛 70 vs 80、
+  SKILL.md 里 8 处不存在的路径、上一段说的 buglog。
+  <strong>它们都不是「代码写错了」，而是「说的和做的不是一回事」—— 而后者更难被发现，因为没人会去验证一句话。</strong></p>
+</blockquote>
+
+<h2><span class="num">06</span>证据汇总（全部实跑）</h2>
+
+<pre><code><span class="cmt"># 前端（CI 同款命令，不带 CLI 参数，完全读配置）</span>
+NODE_OPTIONS=--max-old-space-size=4096 npx vitest run
+  → <span class="ok">Test Files 28 passed | Tests 300 passed | 0 failed</span>
+npx tsc -b                                    → exit 0
+
+<span class="cmt"># 后端</span>
+ruff check api/ tests/ scripts/               → All checks passed!
+pytest test_shutdown_task_robustness + test_db_retention  → 23 passed
+pytest test_version_consistency               → 5 passed
+sync_version.py --check                       → 全链一致 23.3.2
+
+<span class="cmt"># 本地真实 E2E（自起 uvicorn，不复用他人实例）</span>
+11 端点冒烟                                    → 全 200（/admin 307）
+openapi.json                                  → version 23.3.2、paths 68
+serve_static.cjs + curl                       → / 200、/admin 307、/admin/tasks 200
+node scripts/e2e_mobile_smoke.cjs             → <span class="ok">9 passed / 0 failed</span>（真实 chromium 1243）
+SSE 帧实证                                     → 确认携带 status_detail/progress
+
+<span class="cmt"># CI</span>
+GitHub Actions run 38887120926                → <span class="ok">success（6/6 job）</span></code></pre>
+
+<h2><span class="num">07</span>没闭环的（诚实披露）</h2>
+
+<div class="card warn">
+  <span class="tag ghost">未做 · 需你决策</span>
+  <h3>进度条「刷新后只剩粗粒度阶段」</h3>
+  <p>这是<strong>精度限制而非错误</strong> —— <code>status_detail</code>/<code>progress</code> 从未持久化，
+  刷新后本来就无从得知。要让刷新也能看到阶段，需<strong>落库 + 扩 <code>TaskInfo</code> 契约</strong>
+  （改 3 个发布点 + schema 迁移），是一次 API 契约变更 → 属独立决策项，本批<strong>故意不做</strong>。</p>
+</div>
+
+<div class="card info">
+  <span class="tag ghost">非待办</span>
+  <h3>线上部署</h3>
+  <p>你已明确「服务器目前还没给我，没办法线上更新」。故本轮交付口径 = <strong>本地真实 E2E</strong>。
+  该主机（TCP 22/80/443/8100 全超时）属<strong>未提供访问途径</strong>，不是缺陷、不再重复探测。</p>
+</div>
+
+<h2><span class="num">08</span>元教训</h2>
+
+<ol>
+  <li><strong>「无法复现」不等于「无法验证」。</strong> 我卡在「等它自然复现」，正确做法是<strong>强制构造触发条件</strong>（<code>--no-file-parallelism</code> 把两个文件塞进同一 worker）。</li>
+  <li><strong>级联失败会掩盖后续问题。</strong> 修好第一层才看见第二层 —— 这既解释了「为什么修一处没用」，也提醒我别在只看到第一层时就下结论。</li>
+  <li><strong>「文字与实现不符」是被低估的缺陷类别。</strong> 本批抓到的多数真问题属于此类，而且它们会<strong>直接把 CI 搞红</strong>。</li>
+  <li><strong>变异测试是照妖镜。</strong> 它抓出了我两处「看起来是测试、实际没有判别力」的产物。不做的代价是：你以为有防线，其实没有。</li>
+  <li><strong>修法的方向比修法的规模重要。</strong> 关隔离能让测试跑起来、看起来「解决了」，但那正是病根 —— 正确解法是保住隔离、让出并发。</li>
+</ol>
+
+<div class="quiz-head">
+  <h2><span class="num" style="color:#8fd8b4">09</span>测验</h2>
+  <p>10 道题，覆盖本批每个关键判断。展开看答案。全部答对才说明你读懂了这批变更。</p>
+</div>
+
+<details><summary><span class="q">Q1 · 为什么「本机 16 vCPU 跑不出 flaky」这件事本身是线索，而不是反证？</span></summary>
+<div class="ans"><p>因为 flaky 的触发条件是<strong>「两个特定测试文件被分到同一个 worker」</strong>，
+而文件→worker 的分配取决于哪个 worker 先空闲。<strong>vCPU 越多，文件越不容易同组</strong>。
+所以「本机不复现」恰恰与「CI 上偶发」完全自洽 ——
+本地跑不出，不是因为 bug 不存在，而是因为本地<strong>并发度太高，天然避开了触发条件</strong>。
+推论：要复现就得<strong>人为把并发降到 1</strong>（<code>--no-file-parallelism</code>）。</p></div></details>
+
+<details><summary><span class="q">Q2 · `vi.mock` 为什么会跨文件失效？</span></summary>
+<div class="ans"><p><code>isolate: false</code> 下同一 worker 内多个测试文件<strong>共享模块实例</strong>，
+而 <code>vi.mock</code> 的假模块是<strong>按文件注册</strong>的。
+后跑文件里被缓存的组件（同一个 <code>Gallery.tsx</code> 模块）闭包仍指向<strong>上一个文件遗留的 mock 实例</strong>，
+本文件新注册的 mock 对它无效 —— 于是它拿到的是上一个文件的数据。</p></div></details>
+
+<details><summary><span class="q">Q3 · 为什么「关掉 isolate」是错的方向？</span></summary>
+<div class="ans"><p>因为关掉 isolate <strong>正是跨文件 mock 串味的原因</strong>。它当时被引入是为了绕开
+「非 ASCII 路径下隔离 worker 启动超时」—— 但那个绕行<strong>用正确性换了可用性</strong>。
+正确解法是保住隔离、降低并发（<code>maxWorkers: 2</code>），让 worker 在 60s 超时前起来。</p></div></details>
+
+<details><summary><span class="q">Q4 · `isolate: true` 单独改会有什么后果？</span></summary>
+<div class="ans"><p>套件<strong>完全不可用</strong>：实测 <code>28 errors / 0 tests</code> ——
+全部 worker 在 60s 内没起来。因为 <code>isolate: true</code> 下每个测试文件都要重启一次 worker 环境，
+启动成本大幅上升，而非 ASCII 路径（<code>2api目录</code>）下这段本就偏慢。
+所以它<strong>必须</strong>配 <code>maxWorkers: 2</code> 一起改。</p></div></details>
+
+<details><summary><span class="q">Q5 · 进度条那个缺陷，为什么根因在「数据模型」而不是「前端」？</span></summary>
+<div class="ans"><p>因为 <code>GET /v1/tasks/{id}</code> 的响应模型 <code>TaskInfo</code> <strong>压根就没有</strong>
+<code>status_detail</code>/<code>progress</code> 两个字段（DB 层也从未持久化）——
+精确阶段只有 SSE 一条路能给。前端<strong>两条路都订阅</strong>，轮询那条必然拿不到细节。
+所以前端只是<strong>症状现场</strong>，根因是「服务端无法通过轮询告诉你阶段」。</p></div></details>
+
+<details><summary><span class="q">Q6 · 我修的是什么，没修的又是什么？</span></summary>
+<div class="ans"><p><strong>修了</strong>「在途轮询把已知的更精确值覆盖掉」这个<strong>确定性缺陷</strong>
+（用户可见的每 2 秒跳一次）。<br>
+<strong>没修</strong>「刷新页面后只剩粗粒度阶段」—— 那是<strong>精度限制，不是错误</strong>：
+数据从未持久化，刷新后本来就无从得知。要修需落库 + 扩 API 契约，是独立决策。</p></div></details>
+
+<details><summary><span class="q">Q7 · 为什么「加了回归测试」还得再做变异测试？</span></summary>
+<div class="ans"><p>因为测试可能<strong>没有判别力</strong>。本批我第一版进度条回归锁就是伪测试：
+它验证了 hook <strong>方法本身</strong>，而缺陷在<strong>调用点</strong> —— 把修复摘掉它照样全绿。
+变异测试（把修复改回去、看测试是否真红）是唯一能证明「这条防线真的存在」的手段。</p></div></details>
+
+<details><summary><span class="q">Q8 · 为什么说「CI 的失败是级联的」这个认知很关键？</span></summary>
+<div class="ans"><p>因为<strong>前一步失败会让后续步骤直接 <code>[skip]</code></strong> ——
+你只看得见第一层。本批后端 job 的失败就是这样逐层揭开的：
+先修好「单元测试」（真因是 <code>stop()</code> 异常打断优雅关闭），
+才暴露「集成测试」失败（真因是 <code>test_honor</code> 在后端 job 里必然 404）。
+<strong>在只看到第一层时就下结论，会得出「修了没用」的错误判断。</strong></p></div></details>
+
+<details><summary><span class="q">Q9 · buglog 里那句被我更正的话，为什么值得单独记一笔？</span></summary>
+<div class="ans"><p>因为它写的是「非 ASCII 路径隔离 worker 超时的绕行<strong>经复测未复现</strong>」——
+而我实测<strong>复现了</strong>。这条失实记录会直接误导下一个会话：
+它会以为「<code>isolate: false</code> 只是历史包袱、可以随手打开成 <code>true</code>」，
+然后得到 <code>28 errors / 0 tests</code>。已据实更正并补上「必须配 <code>maxWorkers:2</code>」。
+<strong>记录里一句与实测相反的话，会让后来者重走一遍弯路。</strong></p></div></details>
+
+<details><summary><span class="q">Q10 · 这批最反直觉的一条元教训是什么？</span></summary>
+<div class="ans"><p><strong>「无法复现」不等于「无法验证」。</strong><br>
+我一度把「本机复现不出」当成停手的理由，并说了「不做投机修改」—— 原则没错，
+但我漏掉了第三步：<strong>主动构造触发条件</strong>（把并发降到 1，强制两个文件进同一 worker）。
+一构造就复现了。<br>
+真正的判据不是「它自己有没有出现」，而是<strong>「我能不能让它出现」</strong>。</p></div></details>
+
+<footer>
+  <p><strong>听风AI · imagefree-2ai</strong> · 2026-10-16 · v23.3.1 → v23.3.2 变更报告</p>
+  <p>事实台账：<code>docs/verification-log.md</code> ｜ 发行说明：<code>docs/releases/release_notes_23.3.2.md</code>
+     ｜ 可复用坑位：<code>.wolf/memory.md</code> + <code>.claude/skills/imagefree-workflow/</code></p>
+  <p>本报告只记录<strong>实际观察到的事实</strong>。所有「已验证」均附可复现命令；未闭环项均已标注原因。</p>
+</footer>
+
+</div>
+</body>
+</html>
