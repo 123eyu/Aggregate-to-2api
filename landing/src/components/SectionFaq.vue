@@ -13,14 +13,14 @@ const faqs = computed(() => [
 
 const copied = ref(false)
 let copyTimer = null
-const quickstart = `# 1. curl https://imagefree.tingfengai.art/v1/healthz
+const quickstart = `# 1. curl https://imagefree.hwhcie.bond/v1/healthz
 
-# 2. curl -X POST https://imagefree.tingfengai.art/v1/generate \\
+# 2. curl -X POST https://imagefree.hwhcie.bond/v1/generate \\
   -H "Authorization: Bearer <KEY>" \\
   -H "Content-Type: application/json" \\
   -d '{"prompt":"a cute orange cat","aspect_ratio":"1:1"}'
 
-# 3. curl -X POST https://imagefree.tingfengai.art/v1/chat/completions \\
+# 3. curl -X POST https://imagefree.hwhcie.bond/v1/chat/completions \\
   -H "Authorization: Bearer <KEY>" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"tryingopen/z-ai/glm-5.3-flash","messages":[{"role":"user","content":"hi"}]}'`

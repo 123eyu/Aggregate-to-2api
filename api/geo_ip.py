@@ -12,6 +12,26 @@ import base64
 import json
 import urllib.parse
 
+_DEFAULT_PUBLIC_BASE = "https://imagefree.hwhcie.bond"
+
+
+def _public_base_url() -> str:
+    """本服务对外的公网基址（`IF_PUBLIC_BASE_URL`），无尾斜杠。
+
+    2026-10-17：此前这里**硬编码** `https://imagefree.tingfengai.art` —— 那是
+    **已退役**的旧腾讯云部署域名（见 `deploy/README.deploy.md` 的 v23 迁移警示），
+    于是本模块生成的**订阅链接全部指向已下线站点**，用户复制过去不可用。
+    现改走配置，并把默认值定为当前生产域名。
+    懒导入 config：避免模块级循环依赖，且与项目 `get_settings()` 工厂模式一致。
+    """
+    try:
+        from .config import get_settings
+
+        return (get_settings().if_public_base_url or _DEFAULT_PUBLIC_BASE).rstrip("/")
+    except Exception:  # noqa: BLE001 — 取配置失败不应让链接生成崩掉
+        return _DEFAULT_PUBLIC_BASE
+
+
 # 常见国家代码及其中文对照与国旗 Emoji
 COUNTRY_NAMES: dict[str, tuple[str, str]] = {
     "CN": ("中国", "🇨🇳"),
@@ -271,7 +291,7 @@ def format_proxy_protocols(raw_url: str, ip: str, port: int, country_info: dict,
 
     # 5. 一键导入 Scheme (支持一键拉起 V2RayN / Clash / Shadowrocket)
     v2ray_import = vmess_link
-    clash_import = f"clash://install-config?url={urllib.parse.quote('https://imagefree.tingfengai.art/v1/proxy-pool/subscribe?format=clash')}&name={urllib.parse.quote('听风AI免费代理池')}"
+    clash_import = f"clash://install-config?url={urllib.parse.quote(f'{_public_base_url()}/v1/proxy-pool/subscribe?format=clash')}&name={urllib.parse.quote('听风AI免费代理池')}"
 
     return {
         "node_name": node_name,
@@ -336,7 +356,7 @@ def generate_subscription_text(proxies: list[dict], fmt: str = "base64") -> str:
     links = []
     # 订阅头部注释：让客户端知道这是代理池订阅
     links.append("# 听风AI免费代理池 - 支持 V2Ray/Clash/Socks5/Shadowsocks")
-    links.append("# 订阅地址: https://imagefree.tingfengai.art/v1/proxy-pool/subscribe?format=base64")
+    links.append(f"# 订阅地址: {_public_base_url()}/v1/proxy-pool/subscribe?format=base64")
     for p in proxies:
         if p.get("ss_link"):
             links.append(p.get("ss_link"))

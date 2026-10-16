@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Ip,
     [Parameter(Mandatory=$true)][string]$AdminKey,
-    [string]$ApiBase = "https://imagefree.tingfengai.art"
+    [string]$ApiBase = "https://imagefree.hwhcie.bond"
 )
 $body = @{ ip = $Ip; block_type = "block"; reason = "恶意刷接口资源（自动封禁脚本）"; ttl_seconds = 0 } | ConvertTo-Json
 $headers = @{ "Authorization" = "Bearer $AdminKey"; "Content-Type" = "application/json" }

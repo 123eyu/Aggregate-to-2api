@@ -2,7 +2,7 @@
 
 > **目标**：landing/admin 静态资源全球边缘缓存 + DDoS 防护 + WAF + 边缘限流。
 >
-> **前置条件**：`imagefree.tingfengai.art` 域名可迁移 NS 至 Cloudflare（需用户拍板，属 L3 生产灰度）。
+> **前置条件**：`imagefree.hwhcie.bond` 域名可迁移 NS 至 Cloudflare（需用户拍板，属 L3 生产灰度）。
 >
 > **风险等级**：L3（生产灰度 + 外部资源，未授权不实施）
 
@@ -12,7 +12,7 @@
 
 | 项 | 决策 | 说明 |
 |---|---|---|
-| 域名 NS 迁移 | ☐ 用户拍板 | `imagefree.tingfengai.art` 的 NS 记录迁至 Cloudflare，DNS 托管转移 |
+| 域名 NS 迁移 | ☐ 用户拍板 | `imagefree.hwhcie.bond` 的 NS 记录迁至 Cloudflare，DNS 托管转移 |
 | 当前 DNS 提供商 | ☐ 确认 | 腾讯云 DNSPod 或其他，需切 NS |
 | 橙云代理开启 | ☐ 确认 | 静态资源走 CF 代理；API 可按需灰云直连 |
 | SSL 模式 | ☐ Full(strict) | 源站已有 Caddy + 有效证书，用 Full(strict) 防中间人 |
@@ -37,7 +37,7 @@
 ```bash
 # NS 生效后
 dig NS tingfengai.art +short  # 应返回 xxx.ns.cloudflare.com
-dig imagefree.tingfengai.art +short  # 应返回 CF 代理 IP（104.x / 172.67.x）
+dig imagefree.hwhcie.bond +short  # 应返回 CF 代理 IP（104.x / 172.67.x）
 ```
 
 ---
@@ -47,13 +47,13 @@ dig imagefree.tingfengai.art +short  # 应返回 CF 代理 IP（104.x / 172.67.x
 ### 2.1 静态资源 Cache Everything
 
 **规则1：管理面板静态资源**
-- 匹配：`(http.host eq "imagefree.tingfengai.art" and starts_with(http.request.uri.path, "/admin/assets/"))`
+- 匹配：`(http.host eq "imagefree.hwhcie.bond" and starts_with(http.request.uri.path, "/admin/assets/"))`
 - 缓存：Cache Everything
 - Edge TTL：1 day（或 respect origin）
 - Browser TTL：1 hour
 
 **规则2：landing 静态资源**
-- 匹配：`(http.host eq "imagefree.tingfengai.art" and (starts_with(http.request.uri.path, "/assets/") or starts_with(http.request.uri.path, "/fonts/")))`
+- 匹配：`(http.host eq "imagefree.hwhcie.bond" and (starts_with(http.request.uri.path, "/assets/") or starts_with(http.request.uri.path, "/fonts/")))`
 - 缓存：Cache Everything
 - Edge TTL：7 days
 
@@ -128,22 +128,22 @@ dig imagefree.tingfengai.art +short  # 应返回 CF 代理 IP（104.x / 172.67.x
 
 ```bash
 # 1. 静态资源边缘缓存命中（cf-cache-status: HIT）
-curl -I https://imagefree.tingfengai.art/admin/assets/index-xxx.js
+curl -I https://imagefree.hwhcie.bond/admin/assets/index-xxx.js
 # 期望：cf-cache-status: HIT（第二次请求）
 
 # 2. API 不缓存（cf-cache-status: DYNAMIC）
-curl -I https://imagefree.tingfengai.art/v1/healthz
+curl -I https://imagefree.hwhcie.bond/v1/healthz
 # 期望：cf-cache-status: DYNAMIC
 
 # 3. SSE 端点实时性（无缓冲）
-curl -N https://imagefree.tingfengai.art/v1/events/tasks
+curl -N https://imagefree.hwhcie.bond/v1/events/tasks
 # 期望：立即收到 event: ping，无 100s 延迟
 
 # 4. HSTS 头存在
-curl -I https://imagefree.tingfengai.art | grep -i strict-transport
+curl -I https://imagefree.hwhcie.bond | grep -i strict-transport
 
 # 5. 限流生效
-for i in $(seq 1 70); do curl -s -o /dev/null -w "%{http_code}\n" https://imagefree.tingfengai.art/v1/generate; done
+for i in $(seq 1 70); do curl -s -o /dev/null -w "%{http_code}\n" https://imagefree.hwhcie.bond/v1/generate; done
 # 期望：前 60 次 200/429（源站 L1），之后出现 429（CF 边缘 Block）
 ```
 

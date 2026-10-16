@@ -160,12 +160,12 @@ uvicorn api.main:app --host 0.0.0.0 --port 8100
 
 ```bash
 # OpenAI 兼容
-curl -X POST https://imagefree.tingfengai.art/v1/chat/completions \
+curl -X POST https://imagefree.hwhcie.bond/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"tryingopen/z-ai/glm-5.3-flash","messages":[{"role":"user","content":"你好"}],"stream":true}'
 
 # Anthropic 兼容（Claude Code）——聊天不限 Key，API_KEY 可填任意占位
-export ANTHROPIC_BASE_URL=https://imagefree.tingfengai.art/v1
+export ANTHROPIC_BASE_URL=https://imagefree.hwhcie.bond/v1
 export ANTHROPIC_API_KEY=any-placeholder
 ```
 

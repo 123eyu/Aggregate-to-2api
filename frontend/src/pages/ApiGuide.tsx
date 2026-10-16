@@ -37,7 +37,7 @@ export function ApiGuidePage() {
   const t = useT();
   // v7.7.11: 移除业务 Key 输入——生图/聊天公益开放不限 Key，示例不再填充业务 Key
   // （管理 Key 仅用于面板写操作，不在本页输入；用户自行去 Security 页存管理 Key）
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://imagefree.tingfengai.art';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://imagefree.hwhcie.bond';
 
   const examples = useMemo(() => ({
     // v7.7.4：生图公益开放不限 Key（guard_generate_request 已移除 check_api_key），

@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { motion } from 'motion-v'
 import { t } from '../composables/useI18n'
 
-const HOST = 'https://imagefree.tingfengai.art'
+const HOST = 'https://imagefree.hwhcie.bond'
 
 // curl 示例：同步/异步生成、聊天、健康检查
 function computed_samples() {

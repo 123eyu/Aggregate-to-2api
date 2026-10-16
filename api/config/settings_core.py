@@ -392,6 +392,13 @@ class Settings(BaseSettings):
     # ── 动态 IP 风控（ISSUE-02）────────────────────────────
     # 白名单：逗号分隔 IP，白名单 IP 直接绕过封禁与限速（如运维/监控探针）
     if_ip_whitelist: str = Field("", validation_alias="IF_IP_WHITELIST")
+    # 本服务对外的公网基址（**不是**上游 IF_BASE_URL）。用于生成**指向自身**的链接：
+    # 代理订阅 URL、以及任何"让用户复制走"的地址。
+    # 2026-10-17 新增：此前这类地址在 api/geo_ip.py 里**硬编码**，且写的是已退役的
+    # `imagefree.tingfengai.art`（旧腾讯云，见 deploy/README.deploy.md 的 v23 迁移警示）
+    # → 生成的订阅链接指向已下线站点、用户复制过去不可用。
+    # 默认值取仓库文档与项目 CLAUDE.md 共同认定的当前生产域名。
+    if_public_base_url: str = Field("https://imagefree.hwhcie.bond", validation_alias="IF_PUBLIC_BASE_URL")
     # 受信代理：逗号分隔 IP。仅当 socket 对端命中时才解析 X-Forwarded-For（取最右非代理段），
     # 否则一律以 socket 对端为准（防 XFF 伪造绕过封禁/限流）。默认仅信任本机反代。
     if_trusted_proxies: str = Field("127.0.0.1,::1", validation_alias="IF_TRUSTED_PROXIES")

@@ -5,4 +5,4 @@ Disallow: /v1/
 Disallow: /docs
 
 # 站点地图
-Sitemap: https://imagefree.tingfengai.art/sitemap.xml
+Sitemap: https://imagefree.hwhcie.bond/sitemap.xml
