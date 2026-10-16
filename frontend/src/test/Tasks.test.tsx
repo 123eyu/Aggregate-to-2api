@@ -227,3 +227,40 @@ describe('Tasks 进度条：轮询 tick 不得把 SSE 的精确阶段降级覆�
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '30');
   });
 });
+
+// ── SSE 断线后不得「冻结」在最后一个精确阶段（2026-10-17 独立审查 R1）──────
+//
+// 真缺陷（本批自身引入）：降级守卫 `lastAppliedStatus` 若在断线时**不复位**，
+// 则轮询的粗粒度映射被永久抑制 → 徽章**停滞**在最后一个精确阶段（「求解中 30%」），
+// 且无「数据已失联」提示。那不是降级而是停滞 —— 用户更可能误判卡死而点取消/重试，
+// 制造重复上游调用。本文件头部契约明写「SSE 断线 → 纯轮询兜底，行为不变」。
+describe('Tasks 进度条：SSE 断线后必须回落到轮询（不得冻结）', () => {
+  it('断线后过一次轮询 tick，徽章回到轮询口径（不再停留在精确阶段）', async () => {
+    vi.useRealTimers();
+    fetchTasks.mockResolvedValue(list([task('t1', 'processing')]));
+    fetchTask.mockResolvedValue(task('t1', 'processing')); // 轮询口径：无精确子阶段
+    render(<MemoryRouter><TasksPage /></MemoryRouter>);
+    await flush();
+
+    // SSE 推精确阶段
+    const es = EventSourceStub.instances[EventSourceStub.instances.length - 1];
+    await act(async () => {
+      es.dispatch('status', { status: 'processing', status_detail: 'solving', progress: 30 });
+    });
+    expect(screen.getByText('求解中')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '30');
+
+    // 断线：stub 的 onerror 即 handleDisconnect
+    await act(async () => {
+      es.onerror?.(new Event('error'));
+    });
+    expect(es.closed).toBe(true);
+
+    // 越过一个轮询周期 → 轮询应恢复更新（回到「运行中」+ 无定值进度条）
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 2200));
+    });
+    expect(screen.getByText('运行中')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+  });
+});

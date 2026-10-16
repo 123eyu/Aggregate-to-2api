@@ -93,6 +93,13 @@ export function useTaskProgress(taskId: string | null, options: UseTaskProgressO
     // 则 processing 映射出的 {null,null} 会把 SSE 刚写入的精确阶段（solving/30、generating/80）
     // **抹回「运行中」+ 无定值进度条** —— 表现为进度条每 2s 跳一次（用户可见缺陷，
     // 2026-10-16 由 Tasks.test.tsx 的失败 DOM 实证：aria-label="任务阶段：运行中" + 无 aria-valuenow）。
+    //
+    // ⚠ **不变量（改动此处前必读）**：本变量记录「最后一次写入 state 时所用的 status」，
+    // 守卫依赖它等价于「当前保存的精确 detail 属于哪个 status」。当前调用图下两者成立
+    // （SSE 的 apply 也写它）。**若将来在 SSE 路径写入粗粒度值**（例如只带 status 的帧），
+    // 或**后端给 `TaskInfo` 补上 status_detail/progress**（verification-log 里记的那条
+    // "独立决策项"），本守卫会反过来让**更新的轮询精确值被更旧的 SSE 值压住** ——
+    // 那时应改为按「数据新鲜度」（时间戳/版本号）判定，而不是「status 是否变化」。
     let lastAppliedStatus: string | null = null;
 
     const apply = (s: string, detail: string | null, p: number | null) => {
@@ -165,6 +172,12 @@ export function useTaskProgress(taskId: string | null, options: UseTaskProgressO
             es.close();
             esRef.current = null;
           }
+          // 2026-10-17 修（独立审查 R1）：断线必须**复位降级守卫**。
+          // 否则轮询的粗粒度映射会被守卫永久抑制 → 徽章**冻结**在最后一个精确阶段
+          // （如「求解中 30%」）且无「数据已失联」提示 —— 那不是降级而是**停滞**，
+          // 用户更可能误判卡死而点取消/重试，制造重复上游调用。
+          // 本文件头部契约（:10-12）明写「SSE 断线 → 纯轮询兜底，行为不变」，复位即恢复该语义。
+          lastAppliedStatus = null;
         };
         es.addEventListener('status', handleStatus);
         es.addEventListener('result', handleTerminal);
