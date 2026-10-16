@@ -684,10 +684,73 @@ curl -sSL --noproxy '*' --ssl-no-revoke -H "Authorization: Bearer $TOK"   "https
    `pytest tests/ ... --junitxml=data/full_junit.xml` 占满 1 核）。
    注意区分：`D:\参考项目\...` 下的进程属**其他项目**，不要误杀
 
-### 仍未闭环（本批结束时）
+### v23.3.2 续（2026-10-16）—— **CI 首次全绿**
+
+| 日期 | 范围 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-10-16 | **前端 flaky 根因根治**：`isolate:false` 导致同一 worker 内多文件共享模块实例，而 `vi.mock` 按文件注册 → 后跑文件的组件闭包仍指向上个文件遗留的 mock 实例。强制同 worker 连跑实测：`GalleryAlbum→Gallery` 时 Gallery 4 用例全红、反向时 GalleryAlbum 7 用例全红（全仓库唯一「同一组件+同一 vi.mock 目标」组合） | ✅ 已修 | `isolate:false`→`true`，**配套 `maxWorkers: 2`**（isolate:true 下每个文件重启 worker 环境，默认并发会 28 errors/0 tests 全部启动超时；降到 2 后 28 files/300 passed） |
+| 2026-10-16 | **进度条降级覆盖（用户可见缺陷）**：`useTaskProgress` 轮询每 tick 无条件 `apply(mapStatusToDetail(t.status))`，而 `GET /v1/tasks/{id}`（`TaskInfo`）不含 status_detail/progress → processing 映射 `{null,null}` 把 SSE 刚写入的 `solving/30` 抹回「运行中」= **进度条每 2 秒跳一次** | ✅ 已修 | 加「映射为空且状态未变则保留精确值」；**变异验证**：摘掉修复 → 新用例单独失败、原 4 条照过（1 failed/4 passed） |
+| 2026-10-16 | **CI 决定性验证**：GitHub Actions run `38887120926` | ✅ **success（6/6 job）** | **本仓库自 2026-09-08 以来第一次完整跑绿**；此前从 2026-09-28 起连续 11 次 failure |
+
+### 仍未闭环（v23.3.2 结束时）
+
+- **进度条刷新后只剩粗粒度阶段**：属**精度限制而非错误**（status_detail/progress 从未持久化）。
+  要修需落库 + 扩 `TaskInfo` 契约（3 个发布点 + schema + 迁移）→ **独立决策项，未做**。
+- **线上主机 `20.204.27.154` 不可达**（TCP 22/80/443/8100 全超时，DNS 正常）→ 部署热更新受阻。
+
+### 原「仍未闭环」记录（v23.3.0 时点的描述，保留供溯源）
 
 - ~~**前端 vitest flake**：`Unable to find an element with the alt text: test prompt`~~
   → **2026-10-16 已闭环**（根因与验证见文末「前端 vitest flake 根治（isolate 串味）」）。
 - **前端 `Tasks.test.tsx` 并行 flake**（预存，本轮一并闭环）→ 见同一节。
 - **线上主机 `20.204.27.154` 不可达**（TCP 22/80/443/8100 全超时，DNS 正常）→ 部署热更新受阻
 - **全量覆盖率真实数字**未取得（本机全量被 `--timeout=120` 卡在 `test_tryingopen.py::no_sleep`）
+
+---
+
+## 前端 vitest flake 根治（isolate 串味 · 2026-10-16）
+
+**症状（CI 2/6 次）**：`TestingLibraryElementError: Unable to find an element with the alt text: test prompt`
+（4 条同 message）；失败时 DOM 里 `gallery-album` 已渲染、计数「2 张」、只有一个根 div。
+
+**根因（本机已确定性复现）**：`vite.config.ts` 的 `isolate: false` 让同一 worker 内的多个测试文件
+共享模块实例，而 `vi.mock` 的假模块**按文件注册** → 后跑文件里被缓存的组件（`Gallery.tsx`）
+闭包仍指向**上一个文件遗留的 mock 实例**，本文件新注册的 mock 对它完全无效。
+
+```bash
+cd frontend
+# 强制两文件同 worker 串行（isolate:false 下后者必红）
+npx vitest run --no-file-parallelism src/test/GalleryAlbum.test.tsx src/test/Gallery.test.tsx
+#   → Test Files 1 failed | 1 passed ; Tests 4 failed | 7 passed
+#     4 条均为 Gallery.test.tsx:68/95/113/131 的 alt text 断言
+#     DOM 佐证：`imagefree/default` 徽章 +「已加载全部 2 张」= GalleryAlbum 的数据（非本文件的 1 项数据）
+npx vitest run --no-file-parallelism src/test/Gallery.test.tsx src/test/GalleryAlbum.test.tsx
+#   → GalleryAlbum 7 failed（Cannot read properties of undefined (reading 'total')）
+# 爆炸半径（全量单 worker）：2 failed | 26 passed —— 只有这两个文件互相串味
+npx vitest run --no-file-parallelism
+```
+
+**为什么 CI 才偶发**：文件→worker 的分配是「哪个 worker 先空闲谁取下一个文件」的竞争；4 vCPU
+runner 上两个 Gallery 文件偶尔落进同一 worker → 后跑者必红；本机 16 vCPU 几乎不同组，故长期复现不到。
+
+**修复**：`frontend/vite.config.ts` → `isolate: true`（注释内写明机制；老注释里「非 ASCII 路径下
+隔离 worker 启动 60s 超时」的绕行 2026-10-16 复测**未复现** —— 全量并行 28 文件 2m28s 正常跑完，
+且单个 worker 串行/并行两种模式均可用）。**未削弱任何断言、未改测试文件**。
+
+**验证（修复后）**
+- 同组连跑两种顺序 → `11 passed`、`11 passed`（修复前：同两条命令只过 4/11 与 4/11，分别红 4 例、7 例）
+- `npm run test` 连续 3 次 → 每次 `28 passed / 299 passed`，exit 0（94s / 95s / 92s）
+- `npx tsc -b` → 0 error
+
+**顺带闭环：`Tasks.test.tsx` 并行 flake（预存，非本轮引入）**
+`useTaskProgress` 每 2000ms 轮询 `GET /v1/tasks/{id}`，而 GET 响应不含 `status_detail`
+→ `mapStatusToDetail('processing') = {null,null}`，把 SSE 刚写入的「求解中/30」**清回「运行中」**
+（失败 DOM 实证：`aria-label="任务阶段：运行中"` + progressbar 无 `aria-valuenow`）。用例成败于是取决于
+「事件派发→断言」是否跨过 2s 边界。**对照组**：未改配置前（`--no-isolate --fileParallelism`）同样在
+`Tasks.test.tsx:107` 失败 1 例 → 与本轮 isolate 修复无关。修法：该用例内 `vi.useFakeTimers()`
+（afterEach 统一 `vi.useRealTimers()`），轮询 interval 不再自行触发，断言强度不变；单跑 4 passed。
+
+**未做（记录在案）**：`CostsPage.test.tsx` CSV 导出用例在单 worker 满载下失败 1 次（该文件耗时 173s，
+属预存环境 flake），并行模式未复现，本轮未动。
+另：`useTaskProgress` 的轮询会周期性覆盖 SSE 的精确 `status_detail/progress`（用户可见的 2s 级
+徽章/进度回退）—— 这是**产品行为**取舍（SSE 精确值 vs 轮询兜底谁优先），需产品侧决策，本轮只报不改。
