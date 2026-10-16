@@ -178,3 +178,59 @@ TestingLibraryElementError: Unable to find an element with the alt text: test pr
 - 取后端 CI 失败原因（需 admin 权限或本地复刻 CI 环境）
 - 产出 HTML 报告 + 测验 + skill 沉淀
 - 版本 bump + commit + Release
+
+
+---
+
+## 2026-10-17 续批（会话重启后）—— 三路并行审计 → 修复 → 复审 → 复验
+
+### 编排（3 路由独立子代理，互不干扰）
+
+| 路由 | 角色 | 产出 |
+|---|---|---|
+| ScanA | 盲点扫描（数据层/部署文档/目录整洁/文档一致性/配置） | 报告 17.8KB，**5 类真问题** |
+| VerifyB | 对抗性验证（逐条证伪我声称的修复） | 报告 16.6KB，**推翻了我的一条"更正"** |
+| ReviewC | 严苛代码审查（critical-code-reviewer 格式） | 报告 16.5KB，**4 条阻塞项** |
+
+### 本轮修复（4 个提交，CI 已复验 success）
+
+| 提交 | 内容 |
+|---|---|
+| `fc23e39` | **R1**：SSE 断线后进度条「冻结」—— 我上一批加的降级守卫缺复位（独立审查发现） |
+| `119f6e6` | 更正 4 处失实（含「CI 首次全绿」过度宣称 + 我漏改的 `vite.config.ts` 自相矛盾） |
+| `91323aa` | **撤回基于误归因的 `maxWorkers:2`** + 订正我上一批写错的结论 |
+| `c4874e5` | 修 CI 暴露的回归（similar 过滤打破了「只写向量库」的测试） |
+
+### 我说错、被证据推翻的三次（如实记录）
+
+1. **`28 errors / 0 tests` 不是配置属性，是负载伪影** —— 我当时并行开着 3 个跑 vitest 的代理
+   （CPU≈95%）。VerifyB 四组组合全过 + 我本人重测 `--maxWorkers=24` 也过。
+   **我据此加的 `maxWorkers:2` 无收益却拖慢 4.7×（108s→511s），已撤回。**
+   这正是 HEAD `79a5374` 已记录的陷阱，**我踩了同一个坑两次**。
+2. **「CI 首次全绿」是过度宣称** —— 写它的那个提交 `023490d` **自己就是红的**
+   （junit：`no such table: ip_blocklist`）。已降级为「首次出现 success」。
+3. **CI 变红时我差点整体归因为「既存 flake」** —— 逐条看 junit 才发现
+   `test_similar_returns_top_k` 是**我自己 `1ea4c52` 的回归**。已修（并把测试改得更强）。
+
+### 验证（全部实跑）
+
+```
+ruff check api/ tests/ scripts/        → All checks passed!
+sync_version.py --check                → 全链一致 23.3.2
+pytest test_gallery_dedupe             → 14 passed（含新增软删排除断言）
+pytest test_version_consistency        → 5 passed
+vitest run（默认并发，无 maxWorkers）   → 28 files / 301 tests / 0 failed
+CI run 38965406346                     → ✅ success
+```
+
+**变异验证 4 组**：R1 复位 / similar 过滤 / stats 软删（3 处）/ 迁移幂等 —— 均有判别力。
+
+### 仍未闭环（诚实披露）
+
+| 项 | 状态 |
+|---|---|
+| **后端 `ip_blocklist` flake** | ❌ **未闭环**。可靠落点 `tests/test_ip_blocklist.py` 的 fixture **就地改共享单例私有属性**（违反「不可变优先」），与后台异步封禁写竞态。症状：`database is locked` / `no such table: ip_blocklist`。**非本批引入**，但会持续制造 CI 噪声 |
+| **域名分裂** `imagefree.tingfengai.art` vs `hwhcie.bond` | ⏸ **需你决策**：前者散布在生产 CORS 模板、前端默认值、`api/geo_ip.py` 订阅链接、landing 的 canonical/og/sitemap。**属对外可见资产，不宜单方面改** |
+| `requests.status` 无 CHECK 约束 | ⏸ 需表重建（破坏性），未做 |
+| 删任务无级联清理（base64/幂等 key/DLQ/向量） | ⏸ 设计变更，未做。`delete_base64` 是现成抓手（0 生产调用） |
+| 线上部署 | 🚫 你未提供访问途径（按既有口径不做） |
