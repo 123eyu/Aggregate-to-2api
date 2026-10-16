@@ -30,6 +30,14 @@ data/queue.db
 data/account_pool.db
 data/email_registry.db
 data/logs/
+# 2026-10-17 补：运行时产物与调试残留曾误入库（8 文件 / 1.31MB，已 git rm --cached）。
+# SQLite 的 -shm/-wal 另有全局 `*.db-shm` / `*.db-wal` 规则覆盖，此处再按 data/ 锚定一次防漏。
+data/*.db-shm
+data/*.db-wal
+# 数据库备份（副本，不入库；权威库由 IF_DB_FILE 等配置指定）
+data/*.db.bak
+# 调试截图（ui_docs/ui_home/ui_models/ui_pool/ui_providers 等）
+data/ui_*.png
 api.tar
 
 # Runtime
