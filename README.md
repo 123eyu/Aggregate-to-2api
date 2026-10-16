@@ -92,7 +92,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8100
 
 ```
 调用方 ──POST /v1/generate ──► ┌────────────────────────────────────────────────┐
-   (同步/异步)                  │  api/main.py（72 行组装，仅挂载路由/中间件）     │
+   (同步/异步)                  │  api/main.py（组装层，仅挂载路由/中间件）       │
                                │    ├─ api/routes/        （health/tasks/generate/admin）│
                                │    ├─ api/dispatch.py    （路由调度+路由记录全覆盖）│
                                │    ├─ api/dispatch_edit.py（图生图双层互斥锁）      │
@@ -285,15 +285,24 @@ npm run smoke        # E2E 冒烟（需先 npm run build + npm run preview 或�
 node resp-audit.cjs  # 响应式 4 断点审计（375/768/1024/1440，截图归档 .benchmarks/）
 ```
 
-> **E2E 前置**：`npm run smoke` 默认打 `http://localhost:4510`（`vite preview`）。先 `npm run build && npm run preview -- --port 4510`，或设 `E2E_BASE` 指向运行中的服务（如 `E2E_BASE=https://imagefree.tingfengai.art node e2e-smoke.cjs`）。
+> **E2E 前置**：`npm run smoke` 默认打 `http://localhost:4510`（`vite preview`）。先 `npm run build && npm run preview -- --port 4510`，或设 `E2E_BASE` 指向运行中的服务（如 `E2E_BASE=http://localhost:4510 node e2e-smoke.cjs`）。
 
-> **⚠ vitest 在非 ASCII 路径下需要关隔离**：本仓库位于 `Desktop/2api目录/...`。vitest 4 的隔离
-> worker 在含非 ASCII 的路径下启动会 60s 超时（`Timeout waiting for worker to respond`，路径被编码为
-> `2api%E7%9B%AE%E5%BD%95`）；`frontend` 上表现为 **28 个 worker 全挂、0 测试执行**。
-> 已固化进 `frontend/vite.config.ts`（`isolate:false` + `pool:'forks'` + `testTimeout/hookTimeout:20000`）
-> 与 `landing/vitest.config.js`（`isolate:false` + `pool:'threads'`），`npm test` 直接可用，无需额外参数。
-> 其中 `frontend` 用 `forks` 是因为关隔离后模块同进程加载会撞全局 `NODE_OPTIONS` 堆上限而 OOM。
-> **勿写 `test.poolOptions`**——vitest 4 已移除该字段（会被静默忽略，造成"以为配了其实没配"）。
+> **⚠ vitest 配置（两个包不同，别改错）** —— 本仓库位于 `Desktop/2api目录/...` 这类**非 ASCII 路径**下：
+> - **`frontend/`：`isolate: true` + `maxWorkers: 2`**。——**不要关隔离。**
+>   关掉隔离（`isolate:false`）会让同一 worker 内的多个测试文件**共享模块实例**，而 `vi.mock`
+>   按文件注册 → 后跑文件的组件闭包仍指向上个文件遗留的 mock 实例 →
+>   **「同一 commit 时而红时而绿」的 CI 间歇失败**（2026-10-16 已根治，根因见
+>   `docs/verification-log.md` 的 v23.3.2 记录）。
+>   代价是 `isolate:true` 下每个文件都要重启 worker 环境、启动变慢，而 vitest worker 启动有
+>   **60s 内部硬超时**、非 ASCII 路径下本就偏慢 —— 实测**默认并发 + `isolate:true` 会
+>   `28 errors / 0 tests`（套件完全不可用）**，必须靠 `maxWorkers:2` 压住并发才能起来。
+>   **两个设置是配套的，改一个必须同时检查另一个。**
+> - **`landing/`：仍是 `isolate: false` + `pool: 'threads'`**（该包测试间无 `vi.mock` 冲突，
+>   且每个用例显式 `wrapper.unmount()`，不受上述串味影响）。
+> - 跑 `frontend` 测试**必须给足堆**：`NODE_OPTIONS=--max-old-space-size=4096 npm test`
+>   ——512MB（项目调优建议里的值）会让 worker 起不来，表现为 `Timeout waiting for worker to respond`
+>   或 `Worker exited unexpectedly`。
+> - **勿写 `test.poolOptions`**——vitest 4 已移除该字段（会被静默忽略，造成"以为配了其实没配"）。
 
 ---
 

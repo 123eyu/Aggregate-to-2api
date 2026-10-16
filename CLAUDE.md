@@ -104,7 +104,10 @@ cd deploy
 docker compose up -d                  # Docker Compose（推荐）
 ```
 
-CI 流水线：`.github/workflows/ci.yml`（单测 + 集成 + ruff + sync_deploy 防 deploy/api 漂移）、`deploy.yml`（线上部署）。
+CI 流水线：`.github/workflows/ci.yml`（**版本门禁 + 单测 + 集成/混沌 + ruff + 前端构建门禁**）、`deploy.yml`（线上部署）。
+> 更正（2026-10-17）：本节原写「…+ sync_deploy 防 deploy/api 漂移」—— **该机制已于 v6.8.0 废除**
+> （build context 改为仓库根，`deploy/api/` 目录已不存在），CI 中 0 处引用。
+> 详见 `README.md` 的「CI 参考」段与 `scripts/sync_deploy.py` 的 docstring（其本身已是废弃空壳）。
 
 ## 约定
 
