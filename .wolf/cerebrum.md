@@ -14,6 +14,9 @@
 - **不可变优先**：创建新对象而非就地修改
 - **提交格式**：`<type>: <description>`，类型 feat/fix/refactor/docs/test/chore/perf/ci；归属已全局禁用
 
+- **部署环境**：暂不提供线上服务器访问途径（2026-10-16 明确）。交付以**本地真实 E2E** 为准，
+  不要追问线上地址/凭证，也不要因「线上没验」而阻塞其他交付。
+
 ## Key Learnings
 
 - **大文件拆分模式**：旧文件留兼容垫片 `from .new_module import *`，re-export 全部公共符号；from-import 是值拷贝，monkeypatch 改包命名空间要用 `_pkg_attr()` 运行时读包命名空间才能命中
@@ -36,6 +39,13 @@
 - **2026-09-05**：127.0.0.1 被 IP 黑名单误伤（rate-limit-exceeded 入黑名单）导致本地 E2E generate 403——`DELETE FROM ip_blocklist WHERE ip='127.0.0.1'` + `IF_IP_WHITELIST=127.0.0.1` 重启
 - **2026-09-05**：curl GitHub API SSL 失败（exit 35）——改用 `python -c "import httpx; ..."` 调 API
 - **2026-09-05**：`.wolf/*.md` 从未进过 git（仅 buglog.json 进过），无法从历史恢复——直接重写最小版
+
+- **2026-10-16（用户授权口径）**：**线上服务器用户尚未提供 → 一律只做本地真实 E2E，不做线上部署/热更新。**
+  不要反复探测 `imagefree.hwhcie.bond` / `20.204.27.154`（TCP 22/80/443/8100 全超时、DNS 能解析 ——
+  这是「用户未提供访问途径」，**不是缺陷、不是待办**）；不要把它列进「未闭环」反复追。
+  遇到「线上部署/生产热更新/线上 E2E」类要求，直接改做等价本地 E2E：
+  `node scripts/serve_static.cjs` + `node scripts/e2e_mobile_smoke.cjs`（真实 chromium）
+  + 本地 uvicorn `127.0.0.1:8100` + curl。解除条件：用户明确给出服务器访问途径。
 
 ## Decision Log
 

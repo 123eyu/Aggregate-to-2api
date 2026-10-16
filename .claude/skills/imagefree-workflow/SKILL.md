@@ -34,6 +34,19 @@ description: 听风AI imagefree_api 项目开发工作流指南。涉及本仓�
 
 线上演示：https://imagefree.hwhcie.bond （Azure，公益开放）
 
+> **⚠ 交付口径：线上服务器访问途径**用户目前**未提供**（2026-10-16 明确：「服务器目前还没给你，
+> 没办法线上更新」）。因此：
+> - **一切交付以「本地真实 E2E」为准**，不要因「线上没验」而阻塞或降级其他工作。
+> - **不要重复探测** `imagefree.hwhcie.bond` / `20.204.27.154` —— 它 TCP 22/80/443/8100
+>   全超时（DNS 能解析），这是**未提供访问途径**，**不是缺陷、不列为阻塞待办**。
+> - 「线上部署 / 生产热更新 / 线上 E2E」类要求 → 直接改做等价本地 E2E：
+>   `node scripts/serve_static.cjs`（复刻 landing→`/` 与 frontend/dist→`/admin` 挂载语义）
+>   + `node scripts/e2e_mobile_smoke.cjs`（**真实 chromium**）
+>   + 本地 `uvicorn api.main:app --port 8100` + curl 端到端。
+> - 同理不追：`deploy/systemd/` 原生部署落地、litestream R2、观察栈起服、cf_solver 第二节点
+>   （均需线上/外部凭证）。
+> - **解除条件**：用户明确给出服务器访问途径（SSH 端口/凭证/跳板机）后，本条作废。
+
 > **⚠ CI 现状（2026-10-15 实测，动手前必读）**：GitHub Actions **已连续失败约一个月**——
 > 最近 100 次运行中 **CI 54 failure + 1 cancelled、Deploy 45 failure，成功 0 次**
 >（历史上 30 次 success 全在 2026-09-08 及更早）。**不要在"CI 是绿的"这个假设上做判断。**

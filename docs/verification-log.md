@@ -692,11 +692,28 @@ curl -sSL --noproxy '*' --ssl-no-revoke -H "Authorization: Bearer $TOK"   "https
 | 2026-10-16 | **进度条降级覆盖（用户可见缺陷）**：`useTaskProgress` 轮询每 tick 无条件 `apply(mapStatusToDetail(t.status))`，而 `GET /v1/tasks/{id}`（`TaskInfo`）不含 status_detail/progress → processing 映射 `{null,null}` 把 SSE 刚写入的 `solving/30` 抹回「运行中」= **进度条每 2 秒跳一次** | ✅ 已修 | 加「映射为空且状态未变则保留精确值」；**变异验证**：摘掉修复 → 新用例单独失败、原 4 条照过（1 failed/4 passed） |
 | 2026-10-16 | **CI 决定性验证**：GitHub Actions run `38887120926` | ✅ **success（6/6 job）** | **本仓库自 2026-09-08 以来第一次完整跑绿**；此前从 2026-09-28 起连续 11 次 failure |
 
+### v23.3.2 交付口径与本地真实 E2E 验收（2026-10-16）
+
+**用户口径**：线上服务器访问途径**未提供** → 「一切以本地真实 E2E 为准」，不做线上部署/热更新。
+
+| 日期 | 范围 | 结果 | 备注 |
+|------|------|------|------|
+| 2026-10-16 | **本地拉起真实 uvicorn**（`python -m uvicorn api.main:app --port 8100`） | ✅ 启动成功（本机 `import api.main` ≈36s + lifespan 约 25s） | 非复用他人实例，自起自验 |
+| 2026-10-16 | **端点冒烟 11 个**：`/v1/livez` `/v1/healthz` `/v1/meta` `/v1/models` `/v1/tasks` `/v1/stats` `/v1/providers` `/v1/routing/records` `/metrics` `/admin` `/` | ✅ 全 200（`/admin` 307 重定向） | — |
+| 2026-10-16 | **openapi 版本一致性** | ✅ `version = 23.3.2`（与本版本全链一致）、`paths = 68` | — |
+| 2026-10-16 | **静态站服务**：`node scripts/serve_static.cjs --port 4590` + curl | ✅ `/`→200、`/admin`→307、`/admin/tasks`→200 | 复刻 `api/main.py` 挂载语义 |
+| 2026-10-16 | **真实 chromium E2E**：`node scripts/e2e_mobile_smoke.cjs` | ✅ **9 passed / 0 failed**（landing 4 + admin 5，375px，截图落盘） | 真实浏览器，非 jsdom |
+| 2026-10-16 | **SSE 帧内容实证**（建任务 → 订阅 `/v1/tasks/{id}/events`） | ✅ 帧内**确实携带** `status_detail`（`queued`/`solving`/`error`）与 `progress`（5/30） | **验证了进度条修复的前提**：SSE 有精确值、而 `GET /v1/tasks/{id}` 的 `TaskInfo` 无 → 轮询确实在降级覆盖 |
+
 ### 仍未闭环（v23.3.2 结束时）
 
 - **进度条刷新后只剩粗粒度阶段**：属**精度限制而非错误**（status_detail/progress 从未持久化）。
   要修需落库 + 扩 `TaskInfo` 契约（3 个发布点 + schema + 迁移）→ **独立决策项，未做**。
-- **线上主机 `20.204.27.154` 不可达**（TCP 22/80/443/8100 全超时，DNS 正常）→ 部署热更新受阻。
+- **线上部署：非待办**（用户 2026-10-16 明确「服务器目前还没给你，没办法线上更新」）。
+  `20.204.27.154` 的 TCP 22/80/443/8100 全超时（DNS 能解析）属**未提供访问途径**，
+  **不是缺陷、不再重复探测、不列为阻塞待办**。本轮交付口径 = **本地真实 E2E**：
+  `scripts/serve_static.cjs` + `scripts/e2e_mobile_smoke.cjs`（真实 chromium 9/9）
+  + 本地 uvicorn `127.0.0.1:8100` + curl 端到端。解除条件：用户给出服务器访问途径。
 
 ### 原「仍未闭环」记录（v23.3.0 时点的描述，保留供溯源）
 
