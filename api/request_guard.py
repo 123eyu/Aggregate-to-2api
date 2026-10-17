@@ -434,8 +434,16 @@ def _get_cached_ip_rule(ip: str) -> dict | None:
         if now - _LAST_CACHE_SYNC > _BLOCKLIST_CACHE_TTL:
             _LAST_CACHE_SYNC = now
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(_sync_blocklist_cache())
+                # 2026-10-17：此前是**裸 `loop.create_task`** —— 裸 task 不被
+                # `background._BACKGROUND_TASKS` 持有，于是 `background.await_pending()`
+                # **看不见它**，测试在切换共享单例 `ip_blocklist_store._path` 时
+                # 排空不到这条在途同步（它正卡在 `_get_conn()` 上），
+                # 落到新空库 → `no such table: ip_blocklist`（CI junit 实测）。
+                # 本文件 `_record_auto_block_violation`（同族 fire-and-forget 写）早已改走 spawn，
+                # 这里是漏改的同类点，一并收敛。spawn 同时修掉「裸 task 可被 GC 静默回收」。
+                from .background import spawn
+
+                spawn(_sync_blocklist_cache(), name="sync_blocklist_cache")
             except RuntimeError:
                 pass
 

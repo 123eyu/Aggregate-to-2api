@@ -61,37 +61,46 @@ def _reset_guard_state():
 async def blocklist_store(tmp_path):
     """把单例 store 指向独立临时 DB，保证每用例真正隔离。
 
-    ⚠ **2026-10-17 修（本条 docstring 此前"说了没做"）**：
-    旧版 docstring 声称「同时尝试等待在途 _auto_block_ip 后台任务」，
-    但**代码里没有任何等待动作** —— 只翻了 `_path` / `_initialized` 两个标志，
-    于是留下一个真实竞态，正是 CI 上 `test_ip_blocklist` 长期 flake 的根因：
+    ⚠ **2026-10-17 二次修（本条 docstring 此前"说了没做"，且第一次修未中根因）**：
 
-        `add_or_update` 的 `init_schema()` 读 `_initialized`、`_get_conn()` 读 `_path`，
-        两者**不是同一次读取**。若在途的 `_auto_block_ip`（`spawn` 出去的 fire-and-forget 写）
-        在这两步之间被本 fixture 翻成新路径 → 它会在**全新空库**上执行
-        `INSERT INTO ip_blocklist` → `sqlite3.OperationalError: **no such table**`；
-        若时序稍差则与新用例争同一把 sqlite 写锁 → `**database is locked**`。
-        （两种症状在 CI junit 里都出现过。）
+    旧版 docstring 声称「同时尝试等待在途 `_auto_block_ip` 后台任务」，
+    但**代码里没有任何等待动作**——只翻了 `_path` 一个属性。
+    第一次修只加了「换路径前后各等一次在途任务」（`background.await_pending`），
+    结果 **CI 上 `no such table: ip_blocklist` 依然复现** —— 因为漏掉了两点：
 
-    现修：**换路径前后各等一次在途任务**（`background.await_pending`），
-    确保没有任何写跨越路径切换点。`store` 的连接由各方法自开自关（`finally: close`），
-    故无需在此显式关闭。
+    ① 根因不是「任务没等」，而是 **store 把「是否已建表」记成布尔 `_initialized`，
+       而连接用的是另一个属性 `_path`**。两者不绑定：只要换库时标志仍为 True，
+       写就落到未建表的库上。**任何**协程（`_sync_blocklist_cache`、`bg_tasks.count()`）
+       都能在换库后把标志置回 True，与「有没有等后台任务」无关。
+       已在 store 内根治：改记 `_initialized_path`（路径快照），并让
+       `init_schema()` 返回该路径、各方法用返回值开连接。
+       回归覆盖见 `TestPathSwitchRobustness`。
+
+    ② `_sync_blocklist_cache` 当时走**裸 `loop.create_task`**（不注册进
+       `background._BACKGROUND_TASKS`），所以 `await_pending` **根本看不见它**，
+       等也等不到。已改为 `background.spawn`。
+
+    故本 fixture 现在**不需要**等待任何任务：store 自身对换库已经安全。
+    仍保留 `await_pending` 是**防止在途写把上个用例的临时库文件写脏/写串**
+    （文件级隔离，与 no-such-table 无关）；`store` 的连接由各方法自开自关
+    （`finally: close`），故无需在此显式关闭。
     """
     from api import background
 
-    # 换路径前：等上一用例遗留的在途写结束（否则它会在新路径上继续写）
+    # 换路径前：等上一用例遗留的在途写结束（防其上写进本用例的新建库）
     await background.await_pending(timeout=5.0)
 
     old_path = store._path
     store._path = str(tmp_path / "ip_blocklist.db")
-    store._initialized = False
+    # 置空路径快照 = 声明「新库还没建过表」。旧版此处写 `_initialized = False`，
+    # 在加固后那已不是受控属性（会被当成普通实例属性静默创建，隔离形同失效）。
+    store._initialized_path = None
     try:
         yield store
     finally:
-        # 换回路径前：等本用例的在途写结束（这是原缺陷的直接触发点）
         await background.await_pending(timeout=5.0)
         store._path = old_path
-        store._initialized = False
+        store._initialized_path = None
 
 
 async def _add_and_apply(ip: str, **kwargs) -> dict:
@@ -549,3 +558,64 @@ class TestSecurityEndpoints:
             # 正确 Key → 200
             r = await c.get("/v1/admin/security/blocklist", headers={"X-API-Key": "sk-test-key"})
             assert r.status_code == 200
+
+
+# ── 回归：store 必须在「换了库」时自动建表（2026-10-17 加固） ──────────
+#
+# 背景：`IPBlocklistStore` 旧实现把「是否已建表」记成**布尔** `_initialized`，
+# 而连接用的是**另一个属性** `_path` —— 两次读取不绑定。只要 `_path` 被改而
+# 标志仍为 True（fixture 换库、或并发协程在旧路径上建完表后又把标志置真），
+# 写就会落到**未建表的库**上：
+#
+#     sqlite3.OperationalError: no such table: ip_blocklist
+#
+# 这正是 CI 上本文件长期 flake 的根因（junit 里 `no such table` 与
+# `database is locked` 两种症状是同一缺陷的两个落点）。此前 v7.6 的
+# `test_auto_block_after_repeated_429` 只靠「显式先建表」绕开，未根治。
+#
+# 下列用例覆盖**直接调用**与**在途写跨越换库**两条路径 —— 二者都是旧实现下必炸的。
+
+
+class TestPathSwitchRobustness:
+    """换 `_path` 后必须自动在新库建表，且旧库/新库互不串数据。"""
+
+    async def test_switch_path_auto_creates_table(self, tmp_path):
+        """直接换路径（不经任何后台任务）后写入不得抛 no such table。"""
+        from api.db.ip_blocklist_store import IPBlocklistStore
+
+        s = IPBlocklistStore(db_path=str(tmp_path / "a.db"))
+        await s.init_schema()
+        s._path = str(tmp_path / "b.db")  # 换库：旧实现下紧随其后的 INSERT 必炸
+        rec = await s.add_or_update(ip="203.0.113.240", block_type="block")
+        assert rec["ip"] == "203.0.113.240"
+
+    async def test_inflight_write_across_path_switch(self, tmp_path):
+        """在途写卡在写锁上时换库 —— 原 TOCTOU 时序，必须不抛 no such table。"""
+        from api.db.ip_blocklist_store import IPBlocklistStore
+
+        s = IPBlocklistStore(db_path=str(tmp_path / "a.db"))
+        await s.init_schema()
+
+        await s._write_lock.acquire()  # 占住写锁
+        t = asyncio.create_task(s.add_or_update(ip="203.0.113.241", block_type="block"))
+        await asyncio.sleep(0)  # 让它越过 init_schema、卡在锁上
+        s._path = str(tmp_path / "b.db")  # ← 缺陷触发点
+        s._write_lock.release()
+        rec = await t
+        assert rec["ip"] == "203.0.113.241"
+
+    async def test_paths_are_isolated(self, tmp_path):
+        """切到新库再切回，两库数据不得互串（防「修成始终用同一个库」的假修）。"""
+        from api.db.ip_blocklist_store import IPBlocklistStore
+
+        p_a, p_b = str(tmp_path / "a.db"), str(tmp_path / "b.db")
+        s = IPBlocklistStore(db_path=p_a)
+        await s.add_or_update(ip="198.51.100.10", block_type="block")
+
+        s._path = p_b
+        await s.add_or_update(ip="198.51.100.11", block_type="block")
+        assert await s.get("198.51.100.10") is None  # 新库不含旧库记录
+
+        s._path = p_a
+        assert await s.get("198.51.100.10") is not None
+        assert await s.get("198.51.100.11") is None

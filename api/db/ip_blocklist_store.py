@@ -28,45 +28,58 @@ class IPBlocklistStore:
 
     def __init__(self, db_path: str | None = None):
         self._path = db_path or config.DB_FILE
-        self._lock = asyncio.Lock()  # 仅保护 init_schema 的双检
+        self._lock = asyncio.Lock()  # 仅保护建表的双检
         # v9.0.0 R3: 串行化写操作，防 sqlite3.OperationalError: database is locked
         # （store 用独立 aiosqlite 连接，与主库 DB 池写并发时 WAL busy_timeout 偶发锁竞争；
         #  串行化写让并发写排队等待而非报错；读操作不受影响，WAL 多读并发）
         self._write_lock = asyncio.Lock()
-        self._initialized = False
+        # 2026-10-17 加固：记录**哪个路径**已建表，而非布尔「已初始化」。
+        # 旧实现用布尔 `_initialized`：短路检查读标志、_get_conn() 读 `_path`，二者不绑定，
+        # 只要路径换了而标志仍为 True，写就会落到**未建表的库**上
+        # （`no such table: ip_blocklist`，已确定性复现，见 tests/test_ip_blocklist.py）。
+        self._initialized_path: str | None = None
 
-    async def _get_conn(self) -> aiosqlite.Connection:
-        conn = await aiosqlite.connect(self._path, timeout=10, isolation_level=None)
+    async def _get_conn(self, path: str | None = None) -> aiosqlite.Connection:
+        """开一条短连接。`path` 缺省取当前 `_path`。
+
+        传入 `path` 的调用方（`init_schema`）借此把「用哪个库」在**同一次读取**内定死，
+        避免「读标志」与「读路径」之间被换路径（见 `init_schema` 的说明）。
+        """
+        conn = await aiosqlite.connect(path or self._path, timeout=10, isolation_level=None)
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA synchronous=NORMAL")
         await conn.execute("PRAGMA busy_timeout=30000")  # v9.0.0 R3: 10s→30s 防 database is locked 偶发
         return conn
 
-    async def init_schema(self) -> None:
-        """初始化表结构与索引。
+    async def init_schema(self) -> str:
+        """确保**当前 `_path`** 上的表存在（幂等），返回**已建表的路径**。
 
-        ⚠ **已知 TOCTOU（2026-10-17 实测复现，当前仅靠"不在运行期改 `_path`"规避）**：
-        本方法与各写方法里的 `_get_conn()` **分别**读 `_initialized` 与 `_path`，
-        两次读取之间不是原子的。若在此期间 `_path` 被改（**测试 fixture 会这么做**，
-        生产不会 —— `_path` 在 import 期定死），在途写会落到**新路径的空库**上：
+        2026-10-17 加固（原「已知 TOCTOU」已消除）：
+        旧实现把「是否已建表」记成**布尔** `_initialized`，而连接用的是**另一个属性** `_path`
+        —— 两次读取不绑定。只要 `_path` 被改而 `_initialized` 仍为 `True`
+        （测试 fixture 换库、或并发协程在旧路径上建完表后又把标志置真），
+        写入就会落到**未建表的库**上：
 
-            async with store._write_lock.acquire() 被占住
-              → add_or_update 在 init_schema() 返回后卡在写锁
-              → 外部把 _path 换成新库并置 _initialized=False
-              → 放行 → _get_conn() 用新库 → INSERT → no such table: ip_blocklist
+            sqlite3.OperationalError: no such table: ip_blocklist
 
-        已实测复现（报错与 CI junit 逐字一致）。**缓解措施在测试侧**：
-        `tests/test_ip_blocklist.py` 的 `blocklist_store` fixture 换路径前先
-        `await background.await_pending()` 排空在途写。
-        **若将来需要在运行期改 `_path`（例如多租户/动态切库），必须先加固本类**
-        —— 正确做法是「单次快照 `_path` + 在**同一连接**上确保表存在」，
-        而不是分别读两个属性。
+        已确定性复现（报错与 CI junit 逐字一致）。
+
+        现改为：**建的哪个库就记哪个库**（`_initialized_path` 存路径快照，而非布尔），
+        短路检查即「当前 `_path` 是否正是已建表的那条路径」。路径一换，
+        检查自然失效 → 重走建表。
+
+        返回路径供调用方直接 `self._get_conn(path)`：这样「检查/建表用的路径」与
+        「随后读写用的路径」是同一次读取，任何时刻换 `_path` 都不会让写入落到
+        未建表的库上（若调用方分两步各自读 `_path`，仍会留一条缝，故不那样写）。
         """
-        if self._initialized:
-            return
+        path = self._path  # 单次快照：下面的检查、建表、记账、返回都用它
+        if self._initialized_path == path:
+            return path
         async with self._lock:
-            conn = await self._get_conn()
+            if self._initialized_path == path:  # 双检（另一协程可能刚建完）
+                return path
+            conn = await self._get_conn(path)
             try:
                 await conn.executescript("""
                     CREATE TABLE IF NOT EXISTS ip_blocklist (
@@ -82,9 +95,10 @@ class IPBlocklistStore:
                     CREATE INDEX IF NOT EXISTS idx_ip_blocklist_type ON ip_blocklist(block_type);
                 """)
                 await conn.commit()
-                self._initialized = True
+                self._initialized_path = path
             finally:
                 await conn.close()
+        return path
 
     async def add_or_update(
         self,
@@ -95,12 +109,12 @@ class IPBlocklistStore:
         ttl_seconds: float = 0.0,
     ) -> dict:
         """添加或更新封禁记录。ttl_seconds <= 0 表示永久。"""
-        await self.init_schema()
+        path = await self.init_schema()  # 拿「已建表的那个路径」而非事后再读 _path
         now = time.time()
         expire_at = (now + ttl_seconds) if ttl_seconds > 0 else 0.0
 
         async with self._write_lock:  # v9.0.0 R3: 串行化写
-            conn = await self._get_conn()
+            conn = await self._get_conn(path)
             try:
                 await conn.execute(
                     """
@@ -135,9 +149,9 @@ class IPBlocklistStore:
 
     async def remove(self, ip: str) -> bool:
         """移除指定 IP 封禁。"""
-        await self.init_schema()
+        path = await self.init_schema()
         async with self._write_lock:  # v9.0.0 R3: 串行化写
-            conn = await self._get_conn()
+            conn = await self._get_conn(path)
             try:
                 cur = await conn.execute("DELETE FROM ip_blocklist WHERE ip = ?", (ip,))
                 await conn.commit()
@@ -147,9 +161,9 @@ class IPBlocklistStore:
 
     async def get(self, ip: str) -> dict | None:
         """获取单个 IP 的生效规则（若已过期则返回 None 并异步触发清理）。"""
-        await self.init_schema()
+        path = await self.init_schema()
         now = time.time()
-        conn = await self._get_conn()
+        conn = await self._get_conn(path)
         try:
             cur = await conn.execute("SELECT * FROM ip_blocklist WHERE ip = ?", (ip,))
             row = await cur.fetchone()
@@ -176,11 +190,11 @@ class IPBlocklistStore:
         返回 {ip: rule}，仅包含未过期记录；已过期或不在表的 IP 不会出现在结果中。
         供多 IP 批量风控判定使用（单次 IN 查询，避免 N 次 SELECT）。
         """
-        await self.init_schema()
+        path = await self.init_schema()
         if not ips:
             return {}
         now = time.time()
-        conn = await self._get_conn()
+        conn = await self._get_conn(path)
         try:
             placeholders = ",".join("?" * len(ips))
             cur = await conn.execute(f"SELECT * FROM ip_blocklist WHERE ip IN ({placeholders})", list(ips))
@@ -210,11 +224,11 @@ class IPBlocklistStore:
         - updated_before：仅返回 updated_at < 该值的记录（keyset 游标，防并发写分页跳行）
         旧调用方传 limit=2000/10000 仍兼容（被钳到上限 10000）。
         """
-        await self.init_schema()
+        path = await self.init_schema()
         now = time.time()
         limit = max(1, min(limit, 10000))
         offset = max(0, offset)
-        conn = await self._get_conn()
+        conn = await self._get_conn(path)
         try:
             if updated_before is not None:
                 # keyset 游标：下一批取 updated_at < 上页最小 updated_at，严格递减防重复/漏
@@ -245,9 +259,9 @@ class IPBlocklistStore:
 
     async def get_by_ip(self, ip: str) -> dict | None:
         """按 IP 精确查询单条封禁规则（P3 cache-miss 单行回源，避免 30s 全量同步窗口内漏放行）。"""
-        await self.init_schema()
+        path = await self.init_schema()
         now = time.time()
-        conn = await self._get_conn()
+        conn = await self._get_conn(path)
         try:
             cur = await conn.execute(
                 "SELECT * FROM ip_blocklist WHERE ip = ? AND (expire_at = 0 OR expire_at > ?)",
@@ -263,9 +277,9 @@ class IPBlocklistStore:
 
         供分页页码与 stats 端点使用，避免 list_all(limit=10000) 全量加载进内存。
         """
-        await self.init_schema()
+        path = await self.init_schema()
         now = time.time()
-        conn = await self._get_conn()
+        conn = await self._get_conn(path)
         try:
             if since_ts is not None:
                 cur = await conn.execute(
@@ -287,9 +301,9 @@ class IPBlocklistStore:
 
         单 SELECT GROUP BY，不加载明细行；>1000 条时仍精确（样本估算会失真）。
         """
-        await self.init_schema()
+        path = await self.init_schema()
         now = time.time()
-        conn = await self._get_conn()
+        conn = await self._get_conn(path)
         try:
             cur = await conn.execute(
                 "SELECT block_type, COUNT(*) AS n FROM ip_blocklist"
@@ -303,10 +317,10 @@ class IPBlocklistStore:
 
     async def cleanup_expired(self) -> int:
         """清理已过期记录。"""
-        await self.init_schema()
+        path = await self.init_schema()
         now = time.time()
         async with self._write_lock:  # v9.0.0 R3: 串行化写
-            conn = await self._get_conn()
+            conn = await self._get_conn(path)
             try:
                 cur = await conn.execute("DELETE FROM ip_blocklist WHERE expire_at > 0 AND expire_at < ?", (now,))
                 await conn.commit()
