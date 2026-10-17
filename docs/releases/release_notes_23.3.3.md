@@ -128,16 +128,28 @@ CI junit 里两种都出现过 —— 此前一直被当作"随机网络问题"�
 
 ```
 ruff check api/ tests/ scripts/          → All checks passed!
+ruff format --check                      → 3 files already formatted
 pytest tests/test_background_tasks.py    → 5 passed（新增）
 pytest tests/test_ip_blocklist.py        → 31 passed（含新增 TestPathSwitchRobustness 3 用例）
+跨文件组合（test_request_guard*.py ×4 + test_ip_blocklist + test_auth_ip）
+                                         → 130 passed
 pytest tests/test_config_validate.py     → 25 passed（新字段过双向契约）
 pytest tests/test_gallery_dedupe.py      → 14 passed
 pytest tests/test_version_consistency.py → 5 passed
+sync_version.py --check                  → 全链一致 23.3.3（10 文件）
 _public_base_url() 实跑                   → 默认生产域名；设 env 后正确覆盖且去尾斜杠
 npx tsc -b                               → exit 0
 cd landing && npm run build              → 成功
 node scripts/e2e_mobile_smoke.cjs        → 9 passed / 0 failed（真实 chromium）
-CI run 38976132637                       → ✅ success
+CI run 38986559340 (5851c69)             → ✅ success（6/6 job；前一个提交 6cd7ac9 为 failure）
+```
+
+### 针对本修复的专项压测（原始 TOCTOU 时序，非碰运气）
+
+```
+in_flight（占住写锁 → 换库 → 放行）       → 300/300 ok
+direct（直接换库后写入）                   → 300/300 ok
+concurrent_mid_switch（120 协程并发中途换库）→ 120/120 ok
 ```
 
 ---
