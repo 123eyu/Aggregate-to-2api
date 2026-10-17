@@ -234,3 +234,61 @@ CI run 38965406346                     → ✅ success
 | `requests.status` 无 CHECK 约束 | ⏸ 需表重建（破坏性），未做 |
 | 删任务无级联清理（base64/幂等 key/DLQ/向量） | ⏸ 设计变更，未做。`delete_base64` 是现成抓手（0 生产调用） |
 | 线上部署 | 🚫 你未提供访问途径（按既有口径不做） |
+
+---
+
+## 2026-10-17（续批）· `ip_blocklist` flake **真根因**根治 —— 上一批结论被推翻
+
+### 为什么推翻上一批
+
+上一批把该 flake 记为「未闭环：fixture 就地改单例私有属性，与后台异步封禁写竞态」，
+并只加 `background.await_pending()` 排空。**该修复未中根因**：
+
+- CI 在记录该修复的提交 `6cd7ac9` 上**仍失败**，junit 为
+  `test_ttl_expiry_allows_request` → `no such table: ip_blocklist`；
+- **决定性鉴别**：失败帧是测试的**直连调用**（`_add_and_apply` → `store.add_or_update`），
+  **不是后台任务** —— 因此「排空后台任务」与这条路径无关。
+
+### 真根因（两处，叠加）
+
+| # | 根因 | 证据 |
+|---|---|---|
+| 1 | store 用**布尔 `_initialized`** 判「表建过没」，而 `_get_conn()` 连的是**另一个属性 `_path`**，二者不绑定 → 路径一换而标志仍真，写落到未建表的库 | 确定性复现，报错与 junit 逐字一致 |
+| 2 | `api/request_guard.py:438` `_sync_blocklist_cache` 走**裸 `loop.create_task`** → 不注册进 `background._BACKGROUND_TASKS` → `await_pending()` **根本看不见它**（同文件 `_record_auto_block_violation` 早已走 `spawn`，这是**漏改的同类点**） | 静态确认 + 代码位置 |
+
+能把标志置回 `True` 的协程很多（`_sync_blocklist_cache`、`bg_tasks` 的
+`ip_blocklist_store.count()`）—— **根因与"有没有等"无关**，故上一批修法方向本身就不对。
+
+### 修法（在 store 内加固，不依赖调用方守规矩）
+
+1. `_initialized`（布尔）→ **`_initialized_path`（路径快照）**：短路检查变为
+   「当前 `_path` 是否正是已建表的那条路径」；
+2. `init_schema()` **返回**已建表路径，**全部 8 个调用点**改用
+   `conn = await self._get_conn(path)` —— 「检查/建表」与「随后读写」是同一次路径读取，
+   彻底消缝（`_get_conn(path=None)` 兼容无参）；
+3. `api/request_guard.py:438` 裸 `create_task` → `background.spawn`
+   （顺带修掉「裸 task 可被 GC 静默回收 → 封禁缓存不同步」）；
+4. fixture 的 `_initialized = False` → `_initialized_path = None`
+   （前者加固后已非受控属性，会被当普通实例属性静默创建 → 隔离形同失效）。
+
+### 验证（全部实跑）
+
+| 项 | 结果 |
+|---|---|
+| 复现脚本（修复前） | `OperationalError: no such table: ip_blocklist`（与 junit 逐字一致） |
+| 复现脚本（修复后，3 场景：直连换库 / 在途写跨越换库 / 切库隔离） | 3× PASS |
+| **变异验证** | `_initialized_path == path` 退回布尔语义 → 新增回归 **2/3 红** |
+| `pytest tests/test_ip_blocklist.py` | **31 passed**（含新增 `TestPathSwitchRobustness` 3 用例） |
+| 跨文件组合（`test_request_guard*.py`×4 + `test_ip_blocklist` + `test_auth_ip`） | **130 passed** |
+| `ruff check` / `ruff format --check` | All checks passed! / 3 files already formatted |
+| `pytest test_background_tasks.py` | 5 passed |
+
+### 仍未闭环（诚实披露，更新上一批表格）
+
+| 项 | 状态 |
+|---|---|
+| **后端 `ip_blocklist` flake** | ✅ **本轮闭环**（真根因已消除 + 回归覆盖 + 变异验证）。**待 CI 复验**：本机全绿不等于 CI 绿，须以 CI run 为准 |
+| **域名分裂** | ✅ 已闭环（上一批）：`deploy/README.deploy.md` 明写旧域名属已退役腾讯云部署，当前生产为 `hwhcie.bond` → **不是待决策，是行为性引用指向死域名**，已清理 |
+| `requests.status` 无 CHECK 约束 | ⏸ 需表重建（破坏性），未做 |
+| 删任务无级联清理 | ⏸ 设计权衡（详见 release notes 的「判定为不做」段），未做 |
+| 线上部署 | 🚫 你未提供访问途径（按既有口径不做） |

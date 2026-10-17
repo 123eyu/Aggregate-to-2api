@@ -32,6 +32,20 @@
 
 ## Do-Not-Repeat
 
+- **2026-10-17**：**「标志 + 另一个属性」是 TOCTOU 温床** —— `IPBlocklistStore` 旧实现用布尔
+  `_initialized` 判"表建过没"，而 `_get_conn()` 连的是 `_path`，二者不绑定：路径一换而标志仍真，
+  写就落到**未建表的库** → `no such table: ip_blocklist`（CI 长期 flake 的真根因）。
+  已改：`_initialized_path`（**路径快照**）+ `init_schema()` **返回**它建表的路径，
+  调用方用返回值开连接。**判据与被判据的对象必须是同一次读取。**
+- **2026-10-17**：**「等一等」型修复要先验证「等得到吗」** —— 裸 `asyncio.create_task`
+  不注册进 `background._BACKGROUND_TASKS`，`background.await_pending()` **看不见它**，
+  等也等不到。`api/request_guard.py:438` 的 `_sync_blocklist_cache` 就是漏改的裸 task
+  （同文件 `_record_auto_block_violation` 早已走 `spawn`）。**新增后台任务一律用 `background.spawn`。**
+- **2026-10-17**：**junit 的 `classname` 在本项目会误归因** —— 曾把 `test_ip_blocklist.py` 的失败
+  标成 `test_account_fsm_self_heal::test_self_heal_success_to_active`。**必须看 traceback 的 frames，不看 classname。**
+- **2026-10-17**：**失败调用是「直连」还是「后台任务」决定了修复方向** ——
+  该 flake 的失败帧是测试的直连 `store.add_or_update`，故任何"排空后台任务"的修法都无效。
+  定位竞态前先分清**是哪条路径在调**。
 - **2026-09-05**：拆分大文件后 monkeypatch 改包命名空间不命中子模块读点——必须用 `_pkg_attr()`/`_mock_register()` 运行时读包命名空间，不能 from-import 值拷贝
 - **2026-09-05**：`_FakeReg.__init__(self, result=None)` 里 `result if result is not None else 8` 会让 `result=None` 落到默认 8（成功），无法表达失败——用 `_SENTINEL = object()` 哨兵区分"未设"与 None
 - **2026-09-05**：landing dist 含旧版本号导致 `test_landing_built_dist_version_matches_source` 失败——改版本后必须 `cd landing && npm run build` 重建 dist

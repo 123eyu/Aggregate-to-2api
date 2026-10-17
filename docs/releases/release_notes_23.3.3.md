@@ -15,21 +15,24 @@
 
 ## 修复 1：`test_ip_blocklist` 的 flake 根治（CI 噪声的唯一持续来源）
 
-### 根因：在途写跨越了 DB 路径切换（TOCTOU）
+### 根因：store 把「是否已建表」记成**布尔标志**，而连接用的是**另一个属性**
 
-`add_or_update` 里 `init_schema()` 读 `_initialized`、`_get_conn()` 读 `_path`
-—— **两者不是同一次读取**，中间还隔着写锁的 `await`。
-而 `tests/test_ip_blocklist.py` 的 fixture 会**就地改共享单例的私有属性**做每用例隔离，
-且它的 docstring **声称**「同时尝试等待在途 `_auto_block_ip` 后台任务」
-—— **代码里没有任何等待动作**。
-
-于是：
+`IPBlocklistStore` 用 `self._initialized`（布尔）判断表是否建过，
+但 `_get_conn()` 连的是 `self._path`。**两者不绑定** —— 只要 `_path` 被改而
+`_initialized` 仍为 `True`，写入就会落到**未建表的库**上：
 
 ```
-写锁被占（另一笔写在途）→ 在途任务卡在 acquire()
-  → 此刻 fixture 翻路径：_path = 全新空库、_initialized = False
-  → 放行 → _get_conn() 用新库 → INSERT → no such table: ip_blocklist
+sqlite3.OperationalError: no such table: ip_blocklist
 ```
+
+触发路径有两条，**都与"有没有等后台任务"无关**：
+
+1. `tests/test_ip_blocklist.py` 的 fixture 换 `_path` 做每用例隔离 ——
+   但只要期间**任何**协程在旧路径上跑了 `init_schema()`（把标志置回 `True`），
+   换库后的写入就会落到新空库；
+2. `api/request_guard.py:438` 的 `_sync_blocklist_cache` 当时走**裸 `loop.create_task`**
+    —— 裸 task 不被 `background._BACKGROUND_TASKS` 持有，所以即使调用方
+   `await background.await_pending()` 也**看不见它**，等也等不到。
 
 **本机确定性复现**（非碰运气，报错与 CI junit **逐字一致**）：
 
@@ -37,27 +40,45 @@
 await store._write_lock.acquire()               # 占住写锁
 t = asyncio.create_task(store.add_or_update(...))
 await asyncio.sleep(0)                          # 让它越过 init_schema、卡在锁上
-store._path = <新空库>; store._initialized = False
+store._path = <新空库>                           # 换库
 store._write_lock.release()
 await t    # → sqlite3.OperationalError: no such table: ip_blocklist
 ```
 
-**两种症状是同一 TOCTOU 的两个落点**：时序稍差时表现为 `database is locked`。
+**两种症状是同一缺陷的两个落点**：时序稍差时表现为 `database is locked`。
 CI junit 里两种都出现过 —— 此前一直被当作"随机网络问题"。
 
-### 修法
+> 注：v23.3.3 的第一版修复（仅 `await_pending` 排空后台任务）**未中根因** ——
+> CI 在该提交上仍复现 `no such table`。本版才是根治。
 
-- `api/background.py` 新增 **`await_pending(timeout)`** —— 等待在途后台任务结束。
-  该模块此前只有 `spawn` / `pending_count`，**缺"排空"入口**，所以调用方想等也做不到
-  （先例：`sse_events.await_pending_sse_tasks`）。
-- fixture：换路径**前后各等一次**在途任务，确保没有任何写跨越路径切换点。
-- docstring 改为**描述实际所做的事**。
+### 修法（在 store 内加固，而非依赖调用方守规矩）
 
-### 残留（已在代码内记录，未加固）
+- `_initialized`（布尔）→ **`_initialized_path`（路径快照）**：
+  短路检查变成「当前 `_path` 是否正是已建表的那条路径」。路径一换，检查自然失效 → 重走建表。
+- `init_schema()` **返回已建表的路径**，全部 8 个调用点改用它开连接
+  （`conn = await self._get_conn(path)`）——「检查/建表用的路径」与「随后读写用的路径」
+  是同一次读取，任何时刻换 `_path` 都不会让写入落到未建表的库上。
+  `_get_conn(path=None)` 仍兼容无参调用。
+- `api/request_guard.py:438` 裸 `create_task` → `background.spawn`
+  （同文件 `_record_auto_block_violation` 早已改走 spawn，这是漏改的同类点）；
+  顺带修掉「裸 task 可被 GC 静默回收 → 封禁缓存不同步」。
+- `api/background.py` 新增 **`await_pending(timeout)`**：该模块此前只有
+  `spawn` / `pending_count`，**缺"排空"入口**（先例：`sse_events.await_pending_sse_tasks`）。
+  仍在 fixture 中用于**文件级隔离**（防在途写把上个用例的临时库写脏），
+  但现在**不再是** no-such-table 的依赖项。
+- fixture 里 `_initialized = False` → `_initialized_path = None`
+  （前者在加固后已不是受控属性，会被当成普通实例属性静默创建，隔离形同失效）。
+- 两处 docstring 改为**描述实际所做的事**。
 
-`IPBlocklistStore` 自身的 TOCTOU **仍在**。**生产不受影响**（`_path` 在 import 期定死、
-运行期不改）。已在 `init_schema` 的 docstring 写明：**若将来要支持运行期切库
-（多租户等），必须先加固本类**（单次快照 `_path` + 在**同一连接**上确保表存在）。
+### 回归覆盖
+
+`tests/test_ip_blocklist.py::TestPathSwitchRobustness`（3 用例）：
+直接换库自动建表 / **在途写跨越换库**（原 TOCTOU 时序）/ 切库数据互不串。
+已做**变异验证**：把 `_initialized_path == path` 退回布尔语义 → 2/3 红
+（第 3 个是防「修成始终用同一个库」的对照项，布尔语义下仍成立属预期）。
+
+> 此前 v7.6 的 `test_auto_block_after_repeated_429` 只靠「显式先建表」绕开同一缺陷，
+> 未根治；本次才是根因消除。
 
 ---
 
@@ -108,7 +129,7 @@ CI junit 里两种都出现过 —— 此前一直被当作"随机网络问题"�
 ```
 ruff check api/ tests/ scripts/          → All checks passed!
 pytest tests/test_background_tasks.py    → 5 passed（新增）
-pytest tests/test_ip_blocklist.py        → 28 passed
+pytest tests/test_ip_blocklist.py        → 31 passed（含新增 TestPathSwitchRobustness 3 用例）
 pytest tests/test_config_validate.py     → 25 passed（新字段过双向契约）
 pytest tests/test_gallery_dedupe.py      → 14 passed
 pytest tests/test_version_consistency.py → 5 passed

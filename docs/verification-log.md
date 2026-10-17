@@ -765,9 +765,14 @@ curl -sSL --noproxy '*' --ssl-no-revoke -H "Authorization: Bearer $TOK"   "https
 `spawn`/`pending_count`，**缺"排空"入口**，所以调用方想等也做不到）；
 ② fixture 换路径**前后各等一次**在途任务；③ docstring 改成描述实际所做的事。
 
-**残留（已在 store 内记录，未加固）**：`IPBlocklistStore` 自身 TOCTOU 仍在，
-但**生产不受影响**（`_path` 在 import 期定死）。若将来支持运行期切库，必须先加固该类
-（单次快照 `_path` + 在同**一连接**上确保表存在）。
+> ⚠ **本段结论已被推翻（2026-10-17 续批更正）**：上述「修法」**未中根因** ——
+> CI 在记录该修复的提交 `6cd7ac9` 上**仍失败**（同一 `no such table`，且失败调用
+> 是测试的**直连调用**而非后台任务）。真根因是 **store 用布尔 `_initialized` 判"是否已建表"、
+> 而连接读 `_path`，二者不绑定**，与"有没有等后台任务"无关；
+> 且 `_sync_blocklist_cache` 走**裸 `create_task`**，`await_pending` 根本看不见它。
+> 已在 store 内根治（`_initialized_path` 路径快照 + `init_schema()` 返回路径），
+> 详见本文件末尾「2026-10-17（续）· 真根因与根治」一节。
+> **故先前所谓"残留（未加固）"已不成立：TOCTOU 已消除。**
 
 #### 域名：`imagefree.tingfengai.art` 是**已退役**的旧腾讯云部署
 
@@ -886,3 +891,79 @@ runner 上两个 Gallery 文件偶尔落进同一 worker → 后跑者必红；�
 属预存环境 flake），并行模式未复现，本轮未动。
 另：`useTaskProgress` 的轮询会周期性覆盖 SSE 的精确 `status_detail/progress`（用户可见的 2s 级
 徽章/进度回退）—— 这是**产品行为**取舍（SSE 精确值 vs 轮询兜底谁优先），需产品侧决策，本轮只报不改。
+
+---
+
+## 2026-10-17（续）· `test_ip_blocklist` flake 的**真根因**与根治
+
+**为什么还有这一轮**：上一轮（本文件所述）把 flake 归因为「在途写跨越了 DB 路径切换（TOCTOU）」，
+并只做了「fixture 前后各 `await_pending()` 排空」。
+**该修复未中根因** —— CI 在提交 `6cd7ac9`（记录该修复的版本）上**仍失败**，junit 里
+`test_ttl_expiry_allows_request` → `no such table: ip_blocklist`，且
+**失败调用是一次来自测试的直连调用**（`_add_and_apply` → `store.add_or_update`），
+**不是后台任务** —— 因此「等后台任务」这条路径与它无关。必须重新定位。
+
+**真根因（两处，互相叠加）**
+
+1. **store 用布尔标志判「是否已建表」，而连接用的是另一个属性。**
+   `init_schema()` 短路看 `self._initialized`；各写方法的 `_get_conn()` 连 `self._path`。
+   二者**不绑定**：只要 `_path` 换了而标志仍为 `True`，写入即落到**未建表的库**上。
+   谁能把标志置回 `True`？**任何**协程在旧路径上跑一次 `init_schema()` 即可
+   —— 例如 `api/request_guard.py` 的 `_sync_blocklist_cache`、
+   `api/bg_tasks.py` 的 `ip_blocklist_store.count()`。
+   所以「等后台任务」治不了它：**根因与"有没有等"无关**。
+
+2. **`_sync_blocklist_cache` 走裸 `loop.create_task`**（`api/request_guard.py:438`）。
+   裸 task **不注册进** `background._BACKGROUND_TASKS`，于是
+   `background.await_pending()` **根本看不见它** —— 即便调用方想等也等不到。
+   同文件 `_record_auto_block_violation` 早已改走 `background.spawn`，**这是漏改的同类点**。
+
+**确定性复现（报错与 CI junit 逐字一致）**
+
+```python
+s = IPBlocklistStore(db_path=p_old); await s.init_schema()   # p_old 建表
+s._path = p_new                                              # 只换路径，不动标志
+await s.add_or_update(ip=..., block_type="block")
+# → sqlite3.OperationalError: no such table: ip_blocklist
+```
+
+在途版本（原 TOCTOU 时序）同样命中：占住 `_write_lock` → `create_task(add_or_update)`
+→ `sleep(0)` → 换 `_path` → `release()` → `await t` → 同一条报错。
+
+**修法（在 store 内加固，不依赖调用方守规矩）**
+
+- `_initialized`（布尔）→ **`_initialized_path`（路径快照）**：短路检查变为
+  「当前 `_path` 是否正是已建表的那条路径」。换路径 → 检查自然失效 → 重走建表。
+- `init_schema()` **返回已建表的路径**；全部 8 个调用点改用返回值开连接
+  （`conn = await self._get_conn(path)`）——「检查/建表」与「随后读写」用的是同一次路径读取，
+  彻底消除两步之间的缝。`_get_conn(path=None)` 仍兼容无参。
+- `api/request_guard.py:438` 裸 `create_task` → `background.spawn`
+  （顺带修掉「裸 task 可被 GC 静默回收 → 封禁缓存不同步」）。
+- `api/background.py` 新增 `await_pending(timeout)`（该模块此前只有 `spawn`/`pending_count`，
+  **缺"排空"入口**；先例 `sse_events.await_pending_sse_tasks`）。仍用于 fixture 的
+  **文件级隔离**，但**不再是** no-such-table 的依赖项。
+- fixture：`_initialized = False` → `_initialized_path = None`
+  （前者加固后已非受控属性，会被当普通实例属性静默创建 → 隔离形同失效）。
+
+**验证（全部实际运行）**
+
+| 项 | 结果 |
+|---|---|
+| 复现脚本（修复前） | `OperationalError: no such table: ip_blocklist`（与 junit 逐字一致） |
+| 复现脚本（修复后，3 场景：直连换库 / 在途写跨越换库 / 切库隔离） | 3× PASS |
+| **变异验证**：`_initialized_path == path` 退回布尔语义 | 新增回归 2/3 红（第 3 个为防"假修"对照项，布尔语义下仍成立属预期） |
+| `pytest tests/test_ip_blocklist.py` | **31 passed**（含新增 `TestPathSwitchRobustness` 3 用例） |
+| 跨文件组合（`test_request_guard*.py` ×4 + `test_ip_blocklist` + `test_auth_ip`） | **130 passed** |
+| `ruff check api/ tests/ scripts/` | All checks passed! |
+
+**新增回归覆盖**：`tests/test_ip_blocklist.py::TestPathSwitchRobustness`
+—— 直接换库自动建表 / **在途写跨越换库**（原 TOCTOU 时序）/ 切库数据互不串。
+此前 v7.6 的 `test_auto_block_after_repeated_429` 只靠「显式先建表」绕开同一缺陷，**未根治**。
+
+**教学点（写进记忆防复发）**
+- **「等一等」型修复要先验证「等得到吗」**：裸 `create_task` 不受任何注册表管理，
+  `await_pending` 类工具对它无能为力。
+- **「标志 + 另一个属性」的组合是 TOCTOU 温床**：判据与被判据的对象必须是**同一次读取**
+  （此处把判据从布尔改成「路径快照」，并让建表函数**返回**它用的路径）。
+- **junit 的 `classname` 在本项目会误归因**（本次指向 `test_account_fsm_self_heal`），
+  **必须以 traceback 的 frames 为准**。

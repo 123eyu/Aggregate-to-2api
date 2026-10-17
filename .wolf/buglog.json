@@ -74,5 +74,25 @@
     ],
     "occurrences": 1,
     "last_seen": "2026-10-16T20:19:59Z"
+  },
+  {
+    "id": "bug-027",
+    "timestamp": "2026-10-17T08:22:55",
+    "error_message": "sqlite3.OperationalError: no such table: ip_blocklist（CI 上 test_ip_blocklist::TestRequestGuard::test_ttl_expiry_allows_request 长期 flake）",
+    "file": "api/db/ip_blocklist_store.py",
+    "root_cause": "store 用布尔 _initialized 判断「表是否已建」，而 _get_conn() 连接用的是另一个属性 _path，二者不绑定：只要 _path 被换（测试 fixture 换库做隔离）而标志仍为 True（任何协程在旧路径跑一次 init_schema 即会把标志置真，如 _sync_blocklist_cache / bg_tasks.count），写入就落到未建表的库上。另 api/request_guard.py:438 的 _sync_blocklist_cache 走裸 loop.create_task，不注册进 background._BACKGROUND_TASKS，故 background.await_pending() 看不见它。此前一轮把根因误判为「在途任务没等」，修复（仅加 await_pending）未中根因，CI 仍红。",
+    "fix": "① _initialized（布尔）→ _initialized_path（路径快照），短路检查变为「当前 _path 是否正是已建表的那条路径」；② init_schema() 返回已建表路径，全部 8 个调用点改用 conn = await self._get_conn(path)，使「检查/建表」与「随后读写」是同一次路径读取；③ request_guard.py:438 裸 create_task → background.spawn；④ fixture 的 _initialized=False → _initialized_path=None；⑤ 新增 TestPathSwitchRobustness 3 用例（直连换库 / 在途写跨越换库 / 切库隔离），变异验证 2/3 红。",
+    "tags": [
+      "sqlite",
+      "flaky",
+      "TOCTOU",
+      "test-isolation",
+      "ci",
+      "ip_blocklist",
+      "background-task"
+    ],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-10-17T08:22:55"
   }
 ]
