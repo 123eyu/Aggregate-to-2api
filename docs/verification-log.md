@@ -967,3 +967,33 @@ await s.add_or_update(ip=..., block_type="block")
   （此处把判据从布尔改成「路径快照」，并让建表函数**返回**它用的路径）。
 - **junit 的 `classname` 在本项目会误归因**（本次指向 `test_account_fsm_self_heal`），
   **必须以 traceback 的 frames 为准**。
+
+### 真实 E2E 验收（本地 uvicorn + mock cf_solver，非 Mock 桩）
+
+服务：`python -m uvicorn api.main:app --host 127.0.0.1 --port 8100`
+（`IF_CF_SOLVER_URL=http://127.0.0.1:8001`，`scripts/mock_cfsolver.py`）
+启动后 `/v1/healthz` → `{"status":"ok","cf_solver":"up","workers":48,...}`、`/v1/readyz` → `ready`。
+
+**IP 封禁链路（本次修复直接触及的路径）**
+
+| 步骤 | 实测结果 |
+|---|---|
+| 未带 Key 访问 `GET /v1/admin/security/blocklist` | 403（**管理面未配置独立 Key 时默认拒绝** —— 正确行为，非缺陷） |
+| 显式 `IF_ADMIN_KEYS=sk-e2e-admin-local` 后带 Key | 200 `{"items":[],"count":0,...}` |
+| `POST /v1/admin/security/block-ip` 封禁 `203.0.113.77` | 200，返回完整 record |
+| `GET /v1/admin/security/status?ip=` | `blocked: true` |
+| `GET /v1/admin/security/blocklist` | `count:1`，含该条 |
+| `GET /v1/admin/security/stats` | `{"total":1,"block":1,"daily_limit":0}` |
+| `DELETE /v1/admin/security/unblock-ip` | `{"ok":true,"removed":true}` |
+| 解封后再查 status | `blocked: false` |
+
+**风控实际拦截力（区分性验证）**
+
+- 封禁 `198.51.100.66` → 等 32s 缓存同步 → `POST /v1/generate`（带 `X-Forwarded-For`）
+  → **HTTP 403** `{"error":{"code":"AUTH.003","message":"该 IP 已被系统安全风控限制访问"}}`
+- **对照组**同一端点、未封禁 IP → **HTTP 200**，15.4s，
+  返回真实图片 `https://pub-...r2.dev/images/....png`（**证明非"一律拒绝"**）
+- 解封后 → 拦截解除，列表回到 `{"items":[],"count":0}`
+
+**真实 chromium 移动端 E2E**：`node scripts/e2e_mobile_smoke.cjs` → **9 passed / 0 failed**
+（landing 与 /admin 均无横向滚动/溢出，截图产物已刷新并按脚本产出提交）
