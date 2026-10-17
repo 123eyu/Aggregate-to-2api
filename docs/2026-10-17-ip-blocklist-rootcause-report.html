@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>听风AI · 2026-10-17 ip_blocklist 真根因根治报告</title>
+<style>
+  :root{
+    --ink:#101317; --ink2:#2b323b; --muted:#6a7480; --line:#e2e6ec;
+    --bg:#fafbfc; --card:#fff; --accent:#1f6f4a; --accent-soft:#eaf6f0;
+    --warn:#a35a08; --warn-soft:#fdf4e7; --crit:#a8261d; --crit-soft:#fdeceb;
+    --blue:#2551a8; --blue-soft:#eef3fd;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:0 24px 120px}
+
+  header.hero{padding:76px 0 44px;border-bottom:1px solid var(--line);margin-bottom:52px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 18px}
+  h1{font-size:clamp(31px,5.2vw,46px);line-height:1.16;margin:0 0 22px;letter-spacing:-.022em;font-weight:700}
+  .lede{font-size:clamp(17px,2.2vw,19.5px);color:var(--ink2);margin:0;max-width:66ch}
+  .meta{display:flex;flex-wrap:wrap;gap:22px;margin-top:30px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:600}
+
+  h2{font-size:clamp(21px,3vw,27px);margin:58px 0 18px;letter-spacing:-.012em;
+     padding-top:24px;border-top:1px solid var(--line)}
+  h2 .num{font-family:var(--mono);font-size:.62em;color:var(--accent);margin-right:12px;vertical-align:.12em}
+  h3{font-size:17px;margin:32px 0 10px;letter-spacing:-.005em}
+  p{margin:0 0 16px}
+  ul,ol{margin:0 0 16px;padding-left:22px}
+  li{margin:7px 0}
+  code{font-family:var(--mono);font-size:.875em;background:#eff1f6;padding:2px 6px;
+    border-radius:5px;color:#333d4d;word-break:break-word}
+  pre{background:#0f1216;color:#e6e9f0;padding:18px 20px;border-radius:11px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.62;margin:0 0 20px}
+  pre code{background:none;color:inherit;padding:0;font-size:inherit}
+  .cmt{color:#8b95a7}.ok{color:#7ee0a6}.bad{color:#ff8b8b}.hi{color:#ffd479}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:22px 24px;margin:0 0 18px}
+  .card.crit{border-left:3px solid var(--crit);background:var(--crit-soft)}
+  .card.warn{border-left:3px solid var(--warn);background:var(--warn-soft)}
+  .card.good{border-left:3px solid var(--accent);background:var(--accent-soft)}
+  .card.info{border-left:3px solid var(--blue);background:var(--blue-soft)}
+  .card h3{margin-top:0}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+    padding:2px 9px;border-radius:999px;letter-spacing:.05em;margin-bottom:10px}
+  .tag.p0{background:var(--crit);color:#fff}
+  .tag.p1{background:#d9530f;color:#fff}
+  .tag.p2{background:#c39a1d;color:#2b2100}
+  .tag.ok{background:var(--accent);color:#fff}
+  .tag.ghost{background:#e7eaf1;color:#495264}
+
+  table{width:100%;border-collapse:collapse;margin:0 0 22px;font-size:14.5px}
+  th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+     font-family:var(--mono);font-weight:600;background:#f4f6f9}
+  tbody tr:hover{background:#fafbfd}
+  td code{font-size:.85em}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:14px;margin:0 0 26px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:16px 18px}
+  .stat .n{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1.1;letter-spacing:-.02em}
+  .stat .l{font-size:12.5px;color:var(--muted);margin-top:5px}
+  .stat.good .n{color:var(--accent)}
+  .stat.bad .n{color:var(--crit)}
+  .stat.warn .n{color:var(--warn)}
+
+  blockquote{margin:0 0 18px;padding:14px 20px;border-left:3px solid var(--blue);
+    background:var(--blue-soft);border-radius:0 9px 9px 0;color:var(--ink2)}
+  blockquote p:last-child{margin-bottom:0}
+
+  details{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:16px 20px;margin:0 0 14px}
+  details[open]{padding-bottom:20px}
+  summary{cursor:pointer;font-weight:600;list-style:none;display:flex;gap:12px;align-items:flex-start}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸";color:var(--accent);font-size:15px;line-height:1.5;transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  summary .q{flex:1}
+  details .ans{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);color:var(--ink2)}
+  details .ans p:last-child{margin-bottom:0}
+
+  .quiz-head{background:linear-gradient(135deg,#0f2b21,#1f6f4a);color:#fff;
+    border-radius:15px;padding:28px 30px;margin:0 0 26px}
+  .quiz-head h2{border:none;padding:0;margin:0 0 10px;color:#fff}
+  .quiz-head p{margin:0;opacity:.92;font-size:15px}
+
+  footer{margin-top:66px;padding-top:26px;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+  a{color:var(--blue)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:720px){.two{grid-template-columns:1fr}}
+  .var{background:#0f1216;color:#e6e9f0;border-radius:11px;padding:16px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+  .var b{color:#ffd479}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">变更报告 · 2026-10-17 · v23.3.2 → v23.3.3</p>
+  <h1>那条 flaky，我上一轮修错了。<br>真根因是「判据和判据对象不是同一次读取」</h1>
+  <p class="lede">
+    这份报告只讲一件事：<strong><code>test_ip_blocklist</code> 的 <code>no such table</code></strong> ——
+    一个持续制造 CI 噪声的 flake。上一轮我把根因归为「在途任务没等」，加了排空函数，
+    <strong>CI 仍然是红的</strong>。这一轮才挖到底：问题不在「等不等」，而在
+    <strong>用布尔标志判断一个属性的状态，却用另一个属性去干活</strong>。
+  </p>
+  <div class="meta">
+    <span><b>真根因</b> 2 处（叠加）</span>
+    <span><b>修复点</b> 3 处</span>
+    <span><b>回归</b> +3 用例</span>
+    <span><b>压测</b> 720/720</span>
+    <span><b>CI</b> 38986559340 success</span>
+  </div>
+</header>
+
+<h2><span class="num">01</span>先说结论：上一轮的修复是错的</h2>
+
+<p>上一轮我给出的诊断是「在途写跨越了 DB 路径切换」，修法是给 <code>api/background.py</code> 加一个
+<code>await_pending()</code>，让测试 fixture 在换库前把后台任务排空。听起来合理，也确实能复现出报错。</p>
+
+<p>但它没解决问题。证据是我自己推的那个提交：</p>
+
+<div class="grid">
+  <div class="stat bad"><div class="n">failure</div><div class="l">6cd7ac9（记录该修复）</div></div>
+  <div class="stat good"><div class="n">success</div><div class="l">5851c69（本轮真修）</div></div>
+  <div class="stat"><div class="n">1</div><div class="l">两次 run 的失败用例数</div></div>
+  <div class="stat"><div class="n">0</div><div class="l">本轮 CI 失败用例数</div></div>
+</div>
+
+<p>两条 run 走同一条流水线、同一个 job，唯一变量就是这次的代码改动：</p>
+
+<pre><code><span class="cmt">// 从 GitHub API 取到的真实历史</span>
+38986559340  5851c69  completed/<span class="ok">success</span>   <span class="cmt">← 本轮</span>
+38978844942  6cd7ac9  completed/<span class="bad">failure</span>   <span class="cmt">← 上一轮"修复"</span>
+38976132637  31c9cd8  completed/<span class="ok">success</span></code></pre>
+
+<h3>漏掉的关键鉴别：失败调用是「直连」，不是后台任务</h3>
+
+<p>我把失败 run 的 junit 下载下来解出完整 traceback。决定性的一帧在这里：</p>
+
+<pre><code>tests/test_ip_blocklist.py:296: in test_ttl_expiry_allows_request
+    await _add_and_apply("203.0.113.23", block_type="block", ttl_seconds=0.1, reason="temp")
+tests/test_ip_blocklist.py:99: in _add_and_apply
+    rec = await store.add_or_update(ip=ip, **kwargs)      <span class="hi">← 测试自己直接调的</span>
+api/db/ip_blocklist_store.py:105: in add_or_update
+    await conn.execute(...)
+E   sqlite3.OperationalError: no such table: ip_blocklist</code></pre>
+
+<p>失败发生在<strong>测试进程里的一次直接函数调用</strong>。
+「排空后台任务」只影响 <code>background.spawn</code> 注册过的协程 —— 而这条路径压根不经过它。
+<strong>修的方向从一开始就偏了。</strong></p>
+
+<blockquote>
+  <p>顺带一个坑：这份 junit 的 <code>classname</code> 属性把失败标成了
+  <code>tests.test_account_fsm_self_heal::test_self_heal_success_to_active</code> —— <strong>完全错误的归属</strong>。
+  只有 traceback 的 frames 说出真相。这个项目里 junit 的 classname 不可信，必须以 frames 为准。</p>
+</blockquote>
+
+<h2><span class="num">02</span>真根因：判据与被判据的对象，不是同一次读取</h2>
+
+<p>把 <code>IPBlocklistStore</code> 的逻辑摊开看，缺陷一眼就能看出来 —— 但我们之前一直在盯错的地方：</p>
+
+<div class="two">
+  <div class="var"><b>旧实现（有缺陷）</b><br><br>
+    async def init_schema(self):<br>
+    &nbsp;&nbsp;if <b>self._initialized</b>:  <span class="cmt"># 读「标志」</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;return<br>
+    &nbsp;&nbsp;... 建表 ...<br>
+    &nbsp;&nbsp;self._initialized = True<br><br>
+    async def add_or_update(self):<br>
+    &nbsp;&nbsp;await self.init_schema()<br>
+    &nbsp;&nbsp;conn = await <b>self._get_conn()</b><br>
+    &nbsp;&nbsp;<span class="cmt"># ↑ _get_conn 读「另一个属性」_path</span><br>
+    &nbsp;&nbsp;await conn.execute("INSERT ...")
+  </div>
+  <div class="var"><b>修法（本轮）</b><br><br>
+    async def init_schema(self) -&gt; <b>str</b>:<br>
+    &nbsp;&nbsp;path = <b>self._path</b>  <span class="cmt"># 单次快照</span><br>
+    &nbsp;&nbsp;if <b>self._initialized_path</b> == path:<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;return path<br>
+    &nbsp;&nbsp;... 在 path 上建表 ...<br>
+    &nbsp;&nbsp;self._initialized_path = path<br>
+    &nbsp;&nbsp;<b>return path</b><br><br>
+    async def add_or_update(self):<br>
+    &nbsp;&nbsp;path = await self.init_schema()<br>
+    &nbsp;&nbsp;conn = await self._get_conn(<b>path</b>)<br>
+    &nbsp;&nbsp;<span class="cmt"># ↑ 建表与连接用同一个 path</span>
+  </div>
+</div>
+
+<p>缺陷可以一句话说清：<strong>用布尔 <code>_initialized</code> 判断「表建过没」，却用 <code>_path</code> 去连接。</strong>
+两者之间没有任何绑定关系。只要 <code>_path</code> 被换掉而标志仍是 <code>True</code>，
+写入就会落到一个<strong>没建过表的新库</strong>上 —— 于是 <code>no such table</code>。</p>
+
+<h3>为什么「等后台任务」治不了它</h3>
+
+<p>能把标志置回 <code>True</code> 的协程不止一个。这个项目里至少有两处会在旧路径上跑
+<code>init_schema()</code>：</p>
+
+<ul>
+  <li><code>api/request_guard.py</code> 的 <code>_sync_blocklist_cache</code>（定期全量同步封禁缓存）</li>
+  <li><code>api/bg_tasks.py</code> 里的 <code>ip_blocklist_store.count()</code>（告警上下文统计）</li>
+</ul>
+
+<p>它们和「测试 fixture 有没有把任务排空」完全无关。所以<strong>根因与「等不等」无关</strong> —— 这是上一轮判断失误的核心。</p>
+
+<h2><span class="num">03</span>第二处根因：一个等不到的裸 task</h2>
+
+<p>既然想到了「排空后台任务」，那就有个前置问题必须验证：<strong>排得掉吗？</strong></p>
+
+<p>答案是<b>排不掉</b>。<code>background.await_pending()</code> 只看得见
+<code>background.spawn</code> 注册过的任务；而 <code>_sync_blocklist_cache</code> 当时用的是：</p>
+
+<pre><code><span class="cmt">// api/request_guard.py —— 旧写法（裸 task）</span>
+loop = asyncio.get_running_loop()
+loop.create_task(_sync_blocklist_cache())   <span class="bad">← 不注册进任何注册表</span>
+
+<span class="cmt">// 同一个文件里，另一个同类调用点早就改对了：</span>
+spawn(_auto_block_ip(ip, reason), name="auto_block_ip")   <span class="ok">← 走 spawn</span></code></pre>
+
+<p>这是个<strong>漏改的同类点</strong>：同文件、同性质（fire-and-forget 写）、同一个作者早就把另一处改成
+<code>spawn</code> 了。裸 task 不只有「等不到」的问题，还有 asyncio 官方文档点名的
+「循环只持弱引用，中途等 I/O 的 task 可能被 GC 静默取消」—— 表现就是封禁缓存不同步。</p>
+
+<div class="card warn">
+  <span class="tag p1">已修</span>
+  <h3>教训：「等一等」型修复，要先验证「等得到吗」</h3>
+  <p>我加了一个排空函数，却没先确认目标任务是否在那个集合里。这是典型的
+  <strong>凭直觉假设工具覆盖面</strong>。教训记进 <code>.wolf/cerebrum.md</code>：
+  新增后台任务一律用 <code>background.spawn</code>；使用排空类工具前先确认对象的注册方式。</p>
+</div>
+
+<h2><span class="num">04</span>确定性复现：不靠碰运气</h2>
+
+<p>flaky 最怕「改完跑几次是绿的就说修好了」。所以第一步是做<strong>确定性</strong>复现 ——
+代码里构造出那条竞态路径，让它每次必炸：</p>
+
+<pre><code><span class="cmt"># 复现脚本（修复前）</span>
+s = IPBlocklistStore(db_path=p_old)
+await s.init_schema()        <span class="cmt"># p_old 建表，_initialized = True</span>
+s._path = p_new              <span class="cmt"># 只换路径，不动标志 ← 缺陷触发点</span>
+await s.add_or_update(...)
+<span class="bad"># → sqlite3.OperationalError: no such table: ip_blocklist</span></code></pre>
+
+<p>报错与 CI junit <strong>逐字一致</strong>。在途版本（原 TOCTOU 时序）同样命中：</p>
+
+<pre><code>await s._write_lock.acquire()                    <span class="cmt"># 占住写锁</span>
+t = asyncio.create_task(s.add_or_update(...))
+await asyncio.sleep(0)                           <span class="cmt"># 让它越过 init_schema、卡在锁上</span>
+s._path = p_new                                  <span class="cmt"># 换库</span>
+s._write_lock.release()
+await t                                          <span class="bad"># → 同一条报错</span></code></pre>
+
+<h2><span class="num">05</span>修法与验证：三层证据</h2>
+
+<h3>第一层：确定性复现的三种场景</h3>
+
+<table>
+  <thead><tr><th>场景</th><th>修复前</th><th>修复后</th></tr></thead>
+  <tbody>
+    <tr><td>直接换库后写入</td><td>❌ <code>no such table</code></td><td>✅ PASS</td></tr>
+    <tr><td>在途写跨越换库（原 TOCTOU 时序）</td><td>❌ <code>no such table</code></td><td>✅ PASS</td></tr>
+    <tr><td>切库后数据隔离（防「修成始终用同一个库」）</td><td>—</td><td>✅ PASS</td></tr>
+  </tbody>
+</table>
+
+<h3>第二层：变异验证 —— 证明测试有判别力</h3>
+
+<p>「测试通过」本身不说明什么，除非能证明<strong>把修复退回去测试就会红</strong>。
+我把 <code>_initialized_path == path</code> 改回布尔语义（即旧缺陷行为），跑新增的回归测试：</p>
+
+<pre><code>F.F          <span class="cmt"># 2/3 红 —— 判别力成立</span>
+<span class="cmt"># 第 3 个（切库隔离）在布尔语义下仍成立 —— 它是对照项，</span>
+<span class="cmt"># 专门防「把修复做成永远用同一个库」这种假修。</span></code></pre>
+
+<h3>第三层：压力测试 —— 720 次连续命中</h3>
+
+<p>单次通过可能是运气。于是在原始 TOCTOU 时序下连续跑 300 轮 × 2 种路径，
+再加 120 协程并发中途换库：</p>
+
+<div class="grid">
+  <div class="stat good"><div class="n">300/300</div><div class="l">in_flight（占锁→换库→放行）</div></div>
+  <div class="stat good"><div class="n">300/300</div><div class="l">direct（直接换库后写入）</div></div>
+  <div class="stat good"><div class="n">120/120</div><div class="l">120 协程并发中途换库</div></div>
+</div>
+
+<p>同样的压测跑在<strong>变异版</strong>（旧缺陷行为）上：<code>direct: 0/300</code> —— 对照组证明压测本身有效。
+（<code>in_flight</code> 在变异版上仍 300/300，因为变异只退回了第一部分修复，
+「返回路径快照」这第二道防御还在护着它 —— 两段防御各自独立有效。）</p>
+
+<h3>第四层：真实 E2E（本地 uvicorn，非桩）</h3>
+
+<p>起真实服务（<code>uvicorn api.main:app</code> + mock cf_solver），走完整风控链路：</p>
+
+<table>
+  <thead><tr><th>步骤</th><th>实测</th></tr></thead>
+  <tbody>
+    <tr><td>启动健康检查</td><td><code>{"status":"ok","cf_solver":"up","workers":48}</code></td></tr>
+    <tr><td>未带 Key 访问管理面</td><td>403 —— 未配置管理 Key 时默认拒绝（<strong>正确行为</strong>）</td></tr>
+    <tr><td>封禁 <code>203.0.113.77</code></td><td>200，返回完整 record</td></tr>
+    <tr><td>查询 / 列表 / 统计</td><td><code>blocked:true</code> / <code>count:1</code> / <code>{"total":1,"block":1}</code></td></tr>
+    <tr><td>解封 → 再查</td><td><code>{"ok":true,"removed":true}</code> → <code>blocked:false</code></td></tr>
+    <tr><td><strong>风控实际拦截</strong>（封禁 IP 请求 <code>/v1/generate</code>）</td><td><strong>HTTP 403</strong> <code>AUTH.003 该 IP 已被系统安全风控限制访问</code></td></tr>
+    <tr><td><strong>对照组</strong>（未封禁 IP 同端点）</td><td><strong>HTTP 200</strong>，15.4s，返回真实图片 URL</td></tr>
+  </tbody>
+</table>
+
+<p>对照组能真的生成出图片，恰恰证明拦截是<strong>区分性的</strong>，而不是「一律拒绝」。</p>
+
+<h3>第五层：CI 复验</h3>
+
+<p>本机全绿不等于 CI 绿 —— flake 的本性如此。所以我以 GitHub Actions 的结论为准：</p>
+
+<pre><code>CI run 38986559340  (5851c69)
+  代码检查                                              <span class="ok">success</span>
+  测试 (3.11, ubuntu-latest)                            <span class="ok">success</span>  <span class="cmt">← 关键 job</span>
+  前端 E2E + 自动化审计                                  <span class="ok">success</span>
+  前端管理面板门禁（tsc + vitest + build）                <span class="ok">success</span>
+  前端版本一致性门禁                                     <span class="ok">success</span>
+  Docker 构建验证                                        <span class="ok">success</span></code></pre>
+
+<blockquote>
+  <p><strong>诚实的边界</strong>：CI 历史显示这条 flake 是间歇性的（success/failure 交错），
+  所以「一次绿」本身不是充分证明。真正的证据链是：
+  <strong>确定性复现（旧码必炸 / 新码必过）+ 变异验证（退回修复测试就红）+ 720 次压测</strong>。
+  CI 绿是这条链的确认，不是它唯一的支柱。</p>
+</blockquote>
+
+<h2><span class="num">06</span>还有一处同类缺陷被顺手修掉</h2>
+
+<p>排查时发现 <code>api/db/migrations.py</code> 里有一段注释描述<b>同一类</b>
+「<code>PRAGMA table_info</code> 与 <code>ALTER</code> 之间非原子」的 read-then-write。
+但它已经被正确处理了（捕获 <code>duplicate column name</code> 并降级为 debug 日志）——
+<strong>与本轮缺陷不同源</strong>，无需再动。这属于盲点扫描的结果：确认了它没问题，而不是假设它没问题。</p>
+
+<h2><span class="num">07</span>沉淀：这个坑的通用形状</h2>
+
+<div class="card good">
+  <span class="tag ok">写进 cerebrum</span>
+  <h3>四条可复用的判断</h3>
+  <ol>
+    <li><strong>「布尔标志 + 另一个属性」是 TOCTOU 温床。</strong>
+        看到 <code>if self._flag:</code> 后面紧跟用 <code>self._另一个属性</code> 干活 → 立刻怀疑。
+        判据与被判据的对象必须是<strong>同一次读取</strong>（此处：把判据换成路径快照，并让建表函数<strong>返回</strong>它用的路径）。</li>
+    <li><strong>「等一等」型修复要先验证「等得到吗」。</strong>
+        裸 <code>asyncio.create_task</code> 不注册进任何集合，排空工具对它无能为力。</li>
+    <li><strong>先分清失败路径是「直连」还是「后台任务」再定修复方向。</strong>
+        前者与排空、与 task 生命周期都无关。</li>
+    <li><strong>本项目的 junit <code>classname</code> 会误归因</strong>（本次指向完全不相干的文件），
+        必须以 traceback 的 frames 为准。</li>
+  </ol>
+</div>
+
+<p>修复点在<strong>被共享的对象内部</strong>，而不是「要求调用方更小心」——
+这是这次修复与上一轮最本质的差别。受共享状态影响的对象，应该自己保证不变量，
+而不是把正确性外包给每一个调用者。</p>
+
+<h2><span class="num">08</span>交付物清单</h2>
+
+<table>
+  <thead><tr><th>文件</th><th>变更</th></tr></thead>
+  <tbody>
+    <tr><td><code>api/db/ip_blocklist_store.py</code></td><td><code>_initialized</code>→<code>_initialized_path</code>；<code>init_schema()</code> 返回路径；8 个调用点改用返回值开连接</td></tr>
+    <tr><td><code>api/request_guard.py</code></td><td>裸 <code>create_task</code> → <code>background.spawn</code></td></tr>
+    <tr><td><code>tests/test_ip_blocklist.py</code></td><td>+<code>TestPathSwitchRobustness</code>（3 用例）；fixture 改用 <code>_initialized_path</code></td></tr>
+    <tr><td><code>api/background.py</code></td><td><code>await_pending()</code>（上一轮加的，本轮保留用于文件级隔离）</td></tr>
+    <tr><td>台账/记忆</td><td><code>verification-log.md</code>、<code>workflow_status.md</code>、<code>.wolf/{memory,cerebrum,buglog}</code>，并显式更正上一批的错误结论</td></tr>
+  </tbody>
+</table>
+
+<pre><code>ruff check api/ tests/ scripts/          → All checks passed!
+ruff format --check                      → 3 files already formatted
+pytest tests/test_ip_blocklist.py        → 31 passed（新增 3）
+跨文件组合（request_guard×4 + ip_blocklist + auth_ip） → 130 passed
+pytest tests/test_background_tasks.py    → 5 passed
+node scripts/e2e_mobile_smoke.cjs        → 9 passed / 0 failed（真实 chromium）
+sync_version.py --check                  → 全链一致 23.3.3（10 文件）
+CI run 38986559340                       → ✅ 6/6 job success
+GitHub Release v23.3.3                   → 已发布</code></pre>
+
+<div class="quiz-head">
+  <h2>测验：你真的读懂了这个 bug 吗？</h2>
+  <p>八道题，覆盖根因、修复取舍、验证方法与这次的方法论教训。
+  答案藏在折叠里 —— 先自己想，再点开对。</p>
+</div>
+
+<details>
+  <summary><span class="q">Q1. 旧代码里，什么条件下会出现 <code>no such table: ip_blocklist</code>？</span></summary>
+  <div class="ans">
+    <p>当 <code>_initialized</code> 为 <code>True</code>（认为表已建）而 <code>_path</code>
+    指向一个<strong>从未建过表</strong>的库时。<code>init_schema()</code> 会因为标志为真直接短路返回，
+    随后 <code>_get_conn()</code> 用新 <code>_path</code> 连到空库，<code>INSERT</code> 就炸。</p>
+    <p>关键：这两个属性之间<strong>没有任何绑定</strong>，所以「标志为真」不蕴含「这个库有表」。</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q2. 为什么上一轮的「排空后台任务」修法无效？</span></summary>
+  <div class="ans">
+    <p>两个独立原因，任一都足以让它无效：</p>
+    <ul>
+      <li>失败发生在测试进程的一次<strong>直连调用</strong>（<code>store.add_or_update</code>），
+          不经过任何后台任务 —— 排空与这条路径无关。</li>
+      <li>即便真的是后台任务，<code>_sync_blocklist_cache</code> 当时用<strong>裸 <code>create_task</code></strong>，
+          不在 <code>background._BACKGROUND_TASKS</code> 里，<code>await_pending()</code> 也看不见它。</li>
+    </ul>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q3. 为什么把判据从「布尔标志」改成「路径快照」能根治？</span></summary>
+  <div class="ans">
+    <p>因为它把「是否已建表」这个判断<strong>绑定到了具体的库</strong>。
+    检查变成 <code>self._initialized_path == self._path</code> ——
+    路径一换，等式不成立，短路自然失效 → 重走建表。缺陷不再可能发生，而非「概率降低」。</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q4. 为什么还要让 <code>init_schema()</code> <b>返回</b>路径，而不只是改判断条件？</span></summary>
+  <div class="ans">
+    <p>因为「检查/建表用的路径」与「随后读写用的路径」若分两次读 <code>_path</code>，
+    中间仍会留一条缝（换库发生在两次读之间）。让 <code>init_schema()</code> 返回它实际建表的那个路径，
+    调用方用返回值开连接，就保证了两者是<strong>同一次读取</strong>。
+    压测里 <code>in_flight</code> 场景在只做前半段修复时仍能通过，正是这第二道防御在起作用。</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q5. 变异验证里第 3 个测试（切库隔离）在缺陷版下也通过 —— 这是缺陷吗？</span></summary>
+  <div class="ans">
+    <p>不是，那是<strong>设计如此</strong>。它是对照项，作用相反：防止有人用「永远使用同一个库」
+    的方式让前两个测试变绿（那会破坏多库语义，是假修）。一个测试不一定要「抓住 bug」，
+    也可以「钉住不变量」。所以变异后是 2/3 红，而不是 3/3。</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q6. 为什么 CI 变成绿色，仍不足以单独证明修好了？</span></summary>
+  <div class="ans">
+    <p>因为这条 flake 是<strong>间歇性</strong>的 —— CI 历史里 success 与 failure 交错出现，
+    一次绿可能只是没踩中触发窗口。充分的证明需要：
+    <strong>确定性复现</strong>（旧码必炸、新码必过）+ <strong>变异验证</strong>（退回修复测试就红）
+    + <strong>多次压测</strong>。CI 绿是确认，不是唯一支柱。</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q7. 这次的修复点为什么放在 store 内部，而不是「让 fixture 更小心」？</span></summary>
+  <div class="ans">
+    <p>因为共享状态的正确性<strong>不能外包给每个调用者</strong>。
+    能把 <code>_initialized</code> 置回 <code>True</code> 的协程很多
+    （<code>_sync_blocklist_cache</code>、<code>bg_tasks</code> 的 <code>count()</code>…），
+    调用方无论多小心都堵不住。受共享的对象应自己维护不变量 ——
+    这也是为什么上一轮「让 fixture 排空任务」的方向本质上是错的。</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="q">Q8. 这份报告里，哪个「事实」最容易被误读，需要特别警惕？</span></summary>
+  <div class="ans">
+    <p>junit 的 <code>classname</code>。它把失败标成了
+    <code>test_account_fsm_self_heal</code> —— 一个毫不相干的文件。
+    如果按 classname 去查，会在错误的文件里浪费大量时间。
+    <strong>必须以 traceback 的 frames 为准。</strong>
+    类似的「看起来权威但会骗人」的信号还有：注释（本项目已发现多次「注释撒谎」）、
+    以及「跑一次是绿的」。</p>
+  </div>
+</details>
+
+<footer>
+  <p>
+    <strong>听风AI · imagefree-2ai</strong> —— v23.3.3 真根因根治报告<br>
+    基线 v23.3.2 → v23.3.3 · 2026-10-17 · 提交 <code>421cda8</code> / <code>5851c69</code> /
+    <code>ad874f0</code> / <code>e1872f9</code><br>
+    本报告所有数字均来自实际运行：复现脚本、变异测试、720 次压测、真实 uvicorn E2E、GitHub Actions API。
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
